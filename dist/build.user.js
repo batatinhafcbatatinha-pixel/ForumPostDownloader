@@ -4,7 +4,7 @@
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
-// @version 3.15
+// @version 3.16
 // @updateURL https://github.com/SkyCloudDev/ForumPostDownloader/raw/main/dist/build.user.js
 // @downloadURL https://github.com/SkyCloudDev/ForumPostDownloader/raw/main/dist/build.user.js
 // @icon https://simp4.host.church/simpcityIcon192.png
@@ -877,9 +877,10 @@ const ui = {
    * @returns {string}
    */
     getTooltipBackgroundColor: () => {
-        const theme = document.body.innerHTML.indexOf('__&s=11') > -1 ? 'purple' : 'classic';
-        return theme === 'purple' ? '#30204f' : '#2a2929';
+        const scheme = document.documentElement.dataset.colorScheme;
+        return scheme === 'dark' ? '#2B2B2B' : '#EDF0F3';
     },
+
     /**
    * @param target
    * @param content
@@ -1016,7 +1017,7 @@ const ui = {
                 <i aria-hidden="true"></i>
                 <span
                   class="iconic-label"
-                  style="font-weight: bold; margin-left: -7px"
+                  style="margin-left: -7px"
                 >
                     <span id="${id}-label">${label}</span>
                 </span>
@@ -1041,7 +1042,7 @@ const ui = {
      */
         createLabel: label => {
             return `
-      <div style="font-weight: bold; margin-top:5px; margin-bottom: 8px; color: dodgerblue;">
+      <div style="font-weight: bold; margin-top:5px; margin-bottom: 8px; color: #3DB7C7;">
           ${label}
       </div>
       `;
@@ -1093,7 +1094,7 @@ const ui = {
                 createFilenameInput: (currentValue, postId, backgroundColor, placeholder) => {
                     return `
           <div class="menu-row">
-            <div style="font-weight: bold; margin-top:5px; margin-bottom: 8px; color: dodgerblue;">
+            <div style="font-weight: bold; margin-top:5px; margin-bottom: 8px; color: #3DB7C7;">
                 File / Archive Name
             </div>
             <input
@@ -1162,7 +1163,7 @@ const ui = {
          */
                 createFilterLabel: (hosts, getTotalDownloadableResourcesCB) => {
                     return `
-          <div style="font-weight: bold; margin-top:5px; margin-bottom: 8px; margin-left: 8px; color: dodgerblue;">Filter <span id="filtered-count">(${getTotalDownloadableResourcesCB(
+          <div style="font-weight: bold; margin-top:5px; margin-bottom: 8px; margin-left: 8px; color: #3DB7C7;">Filter <span id="filtered-count">(${getTotalDownloadableResourcesCB(
                         hosts,
                     )})</span></div>
           `;
@@ -1230,7 +1231,7 @@ const ui = {
 
                     const settingsHeading = `
           <div class="menu-row">
-            <div style="font-weight: bold; margin-top:3px; margin-bottom: 4px; color: dodgerblue;">
+            <div style="font-weight: bold; margin-top:3px; margin-bottom: 4px; color: #3DB7C7;">
                 Settings
             </div>
           </div>
@@ -1247,7 +1248,7 @@ const ui = {
                         ui.forms.config.post.createVerifyBunkrLinksCheckbox(postId, settings.verifyBunkrLinks),
                         ui.forms.config.post.createHostCheckboxes(postId, filterLabel, hostsHtml, parsedHosts.length > 1),
                         ui.forms.createRow(
-                            '<a href="#download-page" style="color: dodgerblue; font-weight: bold"><i class="fa fa-arrow-up"></i> Show Download Page Button</a>',
+                            '<a href="#download-page" style="color: #3DB7C7; font-weight: bold"><i class="fa fa-arrow-up"></i> Show Download Page Button</a>',
                         ),
                     ].filter(c => c !== null);
 
@@ -5579,7 +5580,7 @@ const selectedPosts = [];
 
                 const ellipsedText = h.limit(defaultPostContent === '' ? threadTitle : defaultPostContent, 20);
 
-                const summary = `<a id="post-content-${postId}" href="#post-${postId}" style="color: dodgerblue"> ${ellipsedText} </a>`;
+                const summary = `<a id="post-content-${postId}" href="#post-${postId}" style="color: #3DB7C7"> ${ellipsedText} </a>`;
                 html += ui.forms.createCheckbox(`config-download-post-${postId}`, `Post #${postNumber} ${summary}`, false);
             });
 
