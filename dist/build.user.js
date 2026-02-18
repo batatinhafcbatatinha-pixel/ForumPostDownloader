@@ -1,6 +1,113 @@
 // noinspection SpellCheckingInspection,JSUnresolvedVariable,JSUnresolvedFunction,TypeScriptUMDGlobal,JSUnusedGlobalSymbols
 // ==UserScript==
 // @name XenForoPostDownloader
+// @description Downloads images and videos from posts
+// @version 3.3
+// @icon https://simp4.host.church/simpcityIcon192.png
+// @license WTFPL; http://www.wtfpl.net/txt/copying/
+// @match https://simpcity.cr/threads/*
+// @match https://simpcity.cr/watched/threads*
+// @require https://unpkg.com/@popperjs/core@2
+// @require https://unpkg.com/tippy.js@6
+// @require https://unpkg.com/file-saver@2.0.4/dist/FileSaver.min.js
+// @require https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js
+// @require https://raw.githubusercontent.com/geraintluff/sha256/gh-pages/sha256.min.js
+// @connect *
+// @connect self
+// @connect selti-delivery.ru
+// @connect coomer.su
+// @connect box.com
+// @connect boxcloud.com
+// @connect kemono.su
+// @connect github.com
+// @connect big-taco-1img.bunkr.ru
+// @connect i-pizza.bunkr.ru
+// @connect bunkr.ac
+// @connect k1-cd.cdn.gigachad-cdn.ru
+// @connect bunkr.ax
+// @connect bunkr.black
+// @connect bunkr.cat
+// @connect bunkr.ci
+// @connect bunkr.cr
+// @connect bunkr.fi
+// @connect bunkr.is
+// @connect bunkr.media
+// @connect bunkr.nu
+// @connect bunkr.red
+// @connect bunkr.ru
+// @connect bunkr.se
+// @connect bunkr.si
+// @connect bunkr.site
+// @connect bunkr.pk
+// @connect bunkr.ph
+// @connect bunkr.ps
+// @connect bunkr.sk
+// @connect bunkr.ws
+// @connect bunkrr.ru
+// @connect bunkrr.su
+// @connect bunkrrr.org
+// @connect bunkr-cache.se
+// @connect cyberdrop.me
+// @connect cyberdrop.cc
+// @connect cyberdrop.ch
+// @connect cyberdrop.cloud
+// @connect cyberdrop.nl
+// @connect cyberdrop.to
+// @connect cyberfile.su
+// @connect cyberfile.me
+// @connect saint2.su
+// @connect saint2.pk
+// @connect saint2.cr
+// @connect redd.it
+// @connect onlyfans.com
+// @connect i.ibb.co
+// @connect ibb.co
+// @connect imagebam.com
+// @connect jpg.fish
+// @connect jpg.fishing
+// @connect jpg.pet
+// @connect jpeg.pet
+// @connect jpg1.su
+// @connect jpg2.su
+// @connect jpg3.su
+// @connect jpg4.su
+// @connect jpg5.su
+// @connect jpg6.su
+// @connect turbovid.cr
+// @connect simpcity.cr
+// @connect imgbox.com
+// @connect pixhost.to
+// @connect pomf2.lain.la
+// @connect pornhub.com
+// @connect postimg.cc
+// @connect imgvb.com
+// @connect pixxxels.cc
+// @connect postimg.cc
+// @connect imagevenue.com
+// @connect nhentai-proxy.herokuapp.com
+// @connect pbs.twimg.com
+// @connect media.tumblr.com
+// @connect pixeldrain.com
+// @connect redgifs.com
+// @connect rule34.xxx
+// @connect noodlemagazine.com
+// @connect pvvstream.pro
+// @connect spankbang.com
+// @connect d50a192c.b-cdn.net
+// @connect sb-cd.com
+// @connect gofile.io
+// @connect turbostats.xyz
+// @connect phncdn.com
+// @connect xvideos.com
+// @connect give.xxx
+// @connect githubusercontent.com
+// @run-at document-start
+// @grant GM_xmlhttpRequest
+// @grant GM_download
+// @grant GM_setValue
+// @grant GM_getValue
+// @grant GM_log
+// @name XenForoPostDownloader
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
@@ -163,8 +270,8 @@ const log = {
     write: (postId, str, type, toConsole = true) => {
         const date = new Date();
         const message = `[${date.toDateString()} ${date.toLocaleTimeString()}] [${type}] ${str}`
-        .replace(/(::.*?::)/gi, (match, g) => g.toUpperCase())
-        .replace(/::/g, '');
+            .replace(/(::.*?::)/gi, (match, g) => g.toUpperCase())
+            .replace(/::/g, '');
         window.logs.push({ postId, message });
         if (toConsole) {
             if (type.toLowerCase() === 'info') {
@@ -302,10 +409,10 @@ const h = {
    * @returns {unknown}
    */
     basename: path =>
-    path
-    .replace(/\/(\s+)?$/, '')
-    .split('/')
-    .reverse()[0],
+        path
+            .replace(/\/(\s+)?$/, '')
+            .split('/')
+            .reverse()[0],
     /**
    * @param path
    * @returns {string}
@@ -375,7 +482,7 @@ const h = {
    * @returns {boolean}
    */
     contains: (needle, haystack, ignoreCase = true) =>
-    (ignoreCase ? haystack.toLowerCase().indexOf(needle.toLowerCase()) : haystack.indexOf(needle)) > -1,
+        (ignoreCase ? haystack.toLowerCase().indexOf(needle.toLowerCase()) : haystack.indexOf(needle)) > -1,
     /**
    * @param str
    * @returns {*|string}
@@ -649,6 +756,7 @@ const h = {
     },
 };
 
+
 Array.prototype.unique = function (cb) {
     return h.unique(this, cb);
 };
@@ -660,7 +768,7 @@ const parsers = {
      */
         parseTitle: () => {
             const emojisPattern =
-                  /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f191}-\u{1f251}\u{1f004}\u{1f0cf}\u{1f170}-\u{1f171}\u{1f17e}-\u{1f17f}\u{1f18e}\u{3030}\u{2b50}\u{2b55}\u{2934}-\u{2935}\u{2b05}-\u{2b07}\u{2b1b}-\u{2b1c}\u{3297}\u{3299}\u{303d}\u{00a9}\u{00ae}\u{2122}\u{23f3}\u{24c2}\u{23e9}-\u{23ef}\u{25b6}\u{23f8}-\u{23fa}]/gu;
+                /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f191}-\u{1f251}\u{1f004}\u{1f0cf}\u{1f170}-\u{1f171}\u{1f17e}-\u{1f17f}\u{1f18e}\u{3030}\u{2b50}\u{2b55}\u{2934}-\u{2935}\u{2b05}-\u{2b07}\u{2b1b}-\u{2b1c}\u{3297}\u{3299}\u{303d}\u{00a9}\u{00ae}\u{2122}\u{23f3}\u{24c2}\u{23e9}-\u{23ef}\u{25b6}\u{23f8}-\u{23fa}]/gu;
             let parsed = h.stripTags(['a', 'span'], h.element('.p-title-value').innerHTML).replace('/\n/g', '');
             return !settings.naming.allowEmojis ? parsed.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim() : parsed.trim();
         },
@@ -686,15 +794,15 @@ const parsers = {
             ['.contentRow-figure', '.js-unfurl-favicon', 'blockquote', '.button-text > span']
                 .flatMap(i => [...messageContentClone.querySelectorAll(i)])
                 .forEach(i => {
-                if (i.tagName === 'BLOCKQUOTE') {
-                    // Only remove blockquotes that quote the other posts.
-                    if (i.querySelector('.bbCodeBlock-title')) {
+                    if (i.tagName === 'BLOCKQUOTE') {
+                        // Only remove blockquotes that quote the other posts.
+                        if (i.querySelector('.bbCodeBlock-title')) {
+                            i.remove();
+                        }
+                    } else {
                         i.remove();
                     }
-                } else {
-                    i.remove();
-                }
-            });
+                });
 
             // Remove thread links.
             [...messageContentClone.querySelectorAll('.contentRow-header > a[href^="https://simpcity.su/threads"]')]
@@ -709,25 +817,25 @@ const parsers = {
 
             // Extract spoilers from the post content.
             const spoilers = [...messageContentClone.querySelectorAll('.bbCodeBlock--spoiler > .bbCodeBlock-content')]
-            .filter(s => !s.querySelector('.bbCodeBlock--unfurl'))
-            .concat([...messageContentClone.querySelectorAll('.bbCodeInlineSpoiler')].filter(s => !s.querySelector('.bbCodeBlock--unfurl')))
-            .map(s => s.innerText)
-            .concat(
-                h.re
-                .matchAll(/(?<=pw|pass|passwd|password)(\s:|:)?\s+?[a-zA-Z0-9~!@#$%^&*()_+{}|:'"<>?\/,;.]+/gis, messageContentClone.innerText)
-                .map(s => s.trim()),
-            )
-            .map(s =>
-                 s
-                 .trim()
-                 .replace(/^:/, '')
-                 .replace(/\bp:\b/i, '')
-                 .replace(/\bpw:\b/i, '')
-                 .replace(/\bkey:\b/i, '')
-                 .trim(),
+                .filter(s => !s.querySelector('.bbCodeBlock--unfurl'))
+                .concat([...messageContentClone.querySelectorAll('.bbCodeInlineSpoiler')].filter(s => !s.querySelector('.bbCodeBlock--unfurl')))
+                .map(s => s.innerText)
+                .concat(
+                    h.re
+                        .matchAll(/(?<=pw|pass|passwd|password)(\s:|:)?\s+?[a-zA-Z0-9~!@#$%^&*()_+{}|:'"<>?\/,;.]+/gis, messageContentClone.innerText)
+                        .map(s => s.trim()),
                 )
-            .filter(s => s !== '')
-            .unique();
+                .map(s =>
+                    s
+                        .trim()
+                        .replace(/^:/, '')
+                        .replace(/\bp:\b/i, '')
+                        .replace(/\bpw:\b/i, '')
+                        .replace(/\bkey:\b/i, '')
+                        .trim(),
+                )
+                .filter(s => s !== '')
+                .unique();
 
             const postContent = messageContentClone.innerHTML;
             const postTextContent = messageContentClone.innerText;
@@ -794,15 +902,15 @@ const parsers = {
                     let matches = h.re.matchAll(pattern, postContent).unique();
 
                     matches = matches.map(url => {
-                // Some XenForo post HTML can leak into the match (e.g. trailing </a>...</div>), which then
-                // creates "ghost" resources (and broken filenames like "div>"). Strip anything after the URL.
-                url = String(url || '');
-                url = url.replace(/&amp;/g, '&');
-                url = url.split(/[\s"'<>]/)[0].trim();
-                // Normalize scheme so the same link in different representations dedupes cleanly.
-                if (url && !/^https?:\/\//i.test(url)) {
-                    url = `https://${url}`;
-                }
+                        // Some XenForo post HTML can leak into the match (e.g. trailing </a>...</div>), which then
+                        // creates "ghost" resources (and broken filenames like "div>"). Strip anything after the URL.
+                        url = String(url || '');
+                        url = url.replace(/&amp;/g, '&');
+                        url = url.split(/[\s"'<>]/)[0].trim();
+                        // Normalize scheme so the same link in different representations dedupes cleanly.
+                        if (url && !/^https?:\/\//i.test(url)) {
+                            url = `https://${url}`;
+                        }
 
                         if (stripQueryString && h.contains('?', url)) {
                             url = url.substring(0, url.indexOf('?'));
@@ -857,10 +965,10 @@ const parsers = {
 
             return parsed
                 .map(p => ({
-                ...p,
-                enabled: true,
-                id: Math.round(Math.random() * Number.MAX_SAFE_INTEGER),
-            }))
+                    ...p,
+                    enabled: true,
+                    id: Math.round(Math.random() * Number.MAX_SAFE_INTEGER),
+                }))
                 .filter(p => p.resources.length);
         },
     },
@@ -1240,7 +1348,7 @@ const ui = {
                     let formHtml = [
                         window.isFF ? ui.forms.config.post.createFilenameInput(customFilename, postId, color, defaultFilename) : null,
                         settingsHeading,
-                        ui.forms.config.post.createZippedCheckbox(postId, settings.zipped),                        ui.forms.config.post.createFlattenCheckbox(postId, settings.flatten),
+                        ui.forms.config.post.createZippedCheckbox(postId, settings.zipped), ui.forms.config.post.createFlattenCheckbox(postId, settings.flatten),
                         ui.forms.config.post.createSkipDuplicatesCheckbox(postId, settings.skipDuplicates),
                         ui.forms.config.post.createGenerateLinksCheckbox(postId, settings.generateLinks),
                         ui.forms.config.post.createGenerateLogCheckbox(postId, settings.generateLog),
@@ -1307,11 +1415,11 @@ const ui = {
                                 settings.verifyBunkrLinks = e.target.checked;
                             });
                             h.element(`#settings-${postId}-zipped`).addEventListener('change', e => {
-                                settings.zipped = e.target.checked;                                if (updateSettings) {
+                                settings.zipped = e.target.checked; if (updateSettings) {
                                     setPrevSettings(settings);
                                 }
                             });
-h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => {
+                            h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => {
                                 settings.generateLinks = e.target.checked;
 
                                 if (updateSettings) {
@@ -1374,14 +1482,14 @@ h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => 
 
                                     if (parsedHosts.length > 0) {
                                         const checkedLength = parsedHosts
-                                        .flatMap(host => h.element(`#downloader-host-${host.id}-${postId}`))
-                                        .filter(h => h.checked).length;
+                                            .flatMap(host => h.element(`#downloader-host-${host.id}-${postId}`))
+                                            .filter(h => h.checked).length;
 
                                         const totalResources = parsedHosts.reduce((acc, host) => acc + host.resources.length, 0);
 
                                         const totalDownloadableResources = parsedHosts
-                                        .filter(host => host.enabled && host.resources.length)
-                                        .reduce((acc, host) => acc + host.resources.length, 0);
+                                            .filter(host => host.enabled && host.resources.length)
+                                            .reduce((acc, host) => acc + host.resources.length, 0);
 
                                         btnDownloadPost.innerHTML = `🡳 Download (${totalDownloadableResources}/${totalResources})`;
 
@@ -1478,10 +1586,10 @@ const hosts = [
     ['kemono:direct link', [/.{2,6}\.kemono.cr\/data\//]],
     ['Postimg:image', [/!!https?:\/\/(www.)?i\.?(postimg|pixxxels).cc\/(.{8})/]], //[/!!https?:\/\/(www.)?postimg.cc\/(.{8})/]],
     ['Ibb:image',
-     [
-         /!!(?<=href=")https?:\/\/(www.)?([a-z](\d+)?\.)?ibb\.co\/([a-zA-Z0-9_.-]){7}((?=")|\/)(([a-zA-Z0-9_.-])+(?="))?/,
-         /ibb.co\/album\/[~an@_.-]+/,
-     ],
+        [
+            /!!(?<=href=")https?:\/\/(www.)?([a-z](\d+)?\.)?ibb\.co\/([a-zA-Z0-9_.-]){7}((?=")|\/)(([a-zA-Z0-9_.-])+(?="))?/,
+            /ibb.co\/album\/[~an@_.-]+/,
+        ],
     ],
     ['Ibb:direct link', [/!!(?<=data-src=")https?:\/\/(www.)?([a-z](\d+)?\.)?ibb\.co\/([a-zA-Z0-9_.-]){7}((?=")|\/)(([a-zA-Z0-9_.-])+(?="))?/]],
     ['Imagevenue:image', [/!!https?:\/\/(www.)?imagevenue\.com\/(.{8})/]],
@@ -1500,9 +1608,9 @@ const hosts = [
     ['Redgifs:video', [/!!redgifs.com(\/|\\\/)ifr.*?(?=["']|&quot;)/]],
     ['Redgifs:user', [/redgifs\.com\/users\//]],
     ['Bunkr:',
-     [
-         /!!(?<=href=")https:\/\/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/)).*?(?=")|(?<=(href=")|(src="))https:\/\/((i|cdn|i-pizza|big-taco-1img)(\d+)?\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/))\/(v\/)?.*?(?=")/,
-     ]
+        [
+            /!!(?<=href=")https:\/\/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/)).*?(?=")|(?<=(href=")|(src="))https:\/\/((i|cdn|i-pizza|big-taco-1img)(\d+)?\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/))\/(v\/)?.*?(?=")/,
+        ]
     ],
     ['Bunkr:Albums', [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)\/a\//]],
     ['Give.xxx:Profiles', [/give.xxx\/[~an@_-]+/]],
@@ -1557,13 +1665,13 @@ const resolvers = [
                 const { dom } = await http.get(finalURL);
 
                 const links = [...dom.querySelectorAll('.card-list__items > article')]
-                .map(a => a.querySelector('.post-card__heading > a'))
-                .map(a => {
-                    return {
-                        link: `${host}${a.getAttribute('href')}`,
-                        id: a.getAttribute('href').split('/').reverse()[0],
-                    };
-                });
+                    .map(a => a.querySelector('.post-card__heading > a'))
+                    .map(a => {
+                        return {
+                            link: `${host}${a.getAttribute('href')}`,
+                            id: a.getAttribute('href').split('/').reverse()[0],
+                        };
+                    });
 
                 posts.push(...links);
                 nextPage = dom.querySelector('a[title="Next page"]');
@@ -1648,9 +1756,9 @@ const resolvers = [
     [
         [/(jpg\d\.(church|fish|fishing|pet|su|cr))|selti-delivery\.ru\//i, /:!jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)/i],
         url =>
-        url
-        .replace('.th.', '.')
-        .replace('.md.', '.')
+            url
+                .replace('.th.', '.')
+                .replace('.md.', '.')
     ],
     [
         [/jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)/i],
@@ -1719,11 +1827,11 @@ const resolvers = [
 
             const resolvePageImages = async dom => {
                 const images = [...dom.querySelectorAll('.list-item-image > a > img')]
-                .map(img => img.getAttribute('src'))
-                .map(url =>
-                     url
-                     .replace('.md.', '.')
-                     .replace('.th.', '.')
+                    .map(img => img.getAttribute('src'))
+                    .map(url =>
+                        url
+                            .replace('.md.', '.')
+                            .replace('.th.', '.')
                     );
 
                 const nextPage = dom.querySelector('a[data-pagination="next"]');
@@ -1749,10 +1857,10 @@ const resolvers = [
     [
         [/\/\/ibb.co\/[a-zA-Z0-9-_.]+/, /:!([a-z](\d+)?\.)?ibb.co\/album\/[a-zA-Z0-9_.-]+/],
         async (url, http) => {
-            try{
+            try {
                 const { dom } = await http.get(url);
                 return dom.querySelector('.header-content-right > a').getAttribute('href');
-            } catch (err){
+            } catch (err) {
                 url => url;
             }
         },
@@ -1828,8 +1936,8 @@ const resolvers = [
             }
 
             const resolved = h.re
-            .matchAll(/(?<=\[img])https:\/\/t\d+.*?(?=\[\/img])/gis, imageLinksInput.getAttribute('value'))
-            .map(url => url.replace(/t(\d+)\./gi, 'img$1.').replace(/thumbs\//i, 'images/'));
+                .matchAll(/(?<=\[img])https:\/\/t\d+.*?(?=\[\/img])/gis, imageLinksInput.getAttribute('value'))
+                .map(url => url.replace(/t(\d+)\./gi, 'img$1.').replace(/thumbs\//i, 'images/'));
 
             return {
                 dom,
@@ -1846,7 +1954,7 @@ const resolvers = [
                 const { pathname } = new URL(url);
 
                 const segments = pathname.split('/').filter(Boolean);
-                const index = segments.findIndex(s => ['f','v','d'].includes(s));
+                const index = segments.findIndex(s => ['f', 'v', 'd'].includes(s));
                 const id = index > -1 ? segments.slice(index + 1).join('/') : segments.pop();
 
                 const response = await http.post(
@@ -1875,153 +1983,153 @@ const resolvers = [
             }
         },
     ],
-[
-    [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
-    async (url, http, _, __, ___, progressCB) => {
-        const cleanUrl = String(url || '').split('#')[0];
-        const baseUrl = cleanUrl.split('?')[0].replace(/\/+$/, '');
+    [
+        [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
+        async (url, http, _, __, ___, progressCB) => {
+            const cleanUrl = String(url || '').split('#')[0];
+            const baseUrl = cleanUrl.split('?')[0].replace(/\/+$/, '');
 
-        const resolved = [];
-        const seen = new Set();
+            const resolved = [];
+            const seen = new Set();
 
-        let firstDom = null;
-        let firstSource = null;
+            let firstDom = null;
+            let firstSource = null;
 
-        const sanitizeName = s => String(s || '')
-            .replace(/[\\/:*?"<>|]/g, '-')
-            .replace(/\s+/g, ' ')
-            .trim();
+            const sanitizeName = s => String(s || '')
+                .replace(/[\\/:*?"<>|]/g, '-')
+                .replace(/\s+/g, ' ')
+                .trim();
 
-        const decodeFinalUrl = data => {
-            try {
-                if (!data || !data.url) return null;
-                if (!data.encrypted) return data.url;
+            const decodeFinalUrl = data => {
+                try {
+                    if (!data || !data.url) return null;
+                    if (!data.encrypted) return data.url;
 
-                const binaryString = atob(data.url);
-                const keyBytes = new TextEncoder().encode(`SECRET_KEY_${Math.floor(data.timestamp / 3600)}`);
+                    const binaryString = atob(data.url);
+                    const keyBytes = new TextEncoder().encode(`SECRET_KEY_${Math.floor(data.timestamp / 3600)}`);
 
-                return Array.from(binaryString)
-                    .map((char, i) => String.fromCharCode(char.charCodeAt(0) ^ keyBytes[i % keyBytes.length]))
-                    .join('');
-            } catch (e) {
-                return null;
-            }
-        };
-
-        const extractSlugsFromDom = dom => {
-            const containers = dom?.querySelectorAll?.('.grid-images > div') || [];
-            const slugs = [];
-
-            for (const c of containers) {
-                const a =
-                    c.querySelector('a[class="after:absolute after:z-10 after:inset-0"]') ||
-                    c.querySelector('a[href*="/f/"]') ||
-                    c.querySelector('a[href*="/v/"]') ||
-                    c.querySelector('a[href*="/d/"]');
-
-                const href = a?.getAttribute?.('href') || '';
-                const m = href.match(/\/(f|v|d)\/([^\/?#]+)/i);
-                if (m && m[2]) slugs.push(m[2]);
-            }
-
-            return slugs;
-        };
-
-        const asyncPool = async (limit, items, worker) => {
-            const results = new Array(items.length);
-            let i = 0;
-
-            const runners = Array.from({ length: Math.max(1, limit) }, async () => {
-                while (true) {
-                    const idx = i++;
-                    if (idx >= items.length) break;
-                    try {
-                        results[idx] = await worker(items[idx], idx);
-                    } catch (e) {
-                        results[idx] = null;
-                    }
+                    return Array.from(binaryString)
+                        .map((char, i) => String.fromCharCode(char.charCodeAt(0) ^ keyBytes[i % keyBytes.length]))
+                        .join('');
+                } catch (e) {
+                    return null;
                 }
-            });
+            };
 
-            await Promise.all(runners);
-            return results;
-        };
+            const extractSlugsFromDom = dom => {
+                const containers = dom?.querySelectorAll?.('.grid-images > div') || [];
+                const slugs = [];
 
-        const origin = (() => {
-            try { return new URL(baseUrl).origin; } catch (e) { return 'https://bunkr.cr'; }
-        })();
+                for (const c of containers) {
+                    const a =
+                        c.querySelector('a[class="after:absolute after:z-10 after:inset-0"]') ||
+                        c.querySelector('a[href*="/f/"]') ||
+                        c.querySelector('a[href*="/v/"]') ||
+                        c.querySelector('a[href*="/d/"]');
 
-        const vsEndpoint = `${origin}/api/vs`;
+                    const href = a?.getAttribute?.('href') || '';
+                    const m = href.match(/\/(f|v|d)\/([^\/?#]+)/i);
+                    if (m && m[2]) slugs.push(m[2]);
+                }
 
-        let folderName = null;
+                return slugs;
+            };
 
-        const MAX_PAGES = 500;
-        const CONCURRENCY = 8;
+            const asyncPool = async (limit, items, worker) => {
+                const results = new Array(items.length);
+                let i = 0;
 
-        for (let page = 1; page <= MAX_PAGES; page++) {
-            const pageUrl = `${baseUrl}?page=${page}`;
-
-            if (typeof progressCB === 'function') {
-                progressCB(`Resolving: ${pageUrl}`);
-            }
-
-            let dom, source;
-            try {
-                ({ dom, source } = await http.get(pageUrl));
-            } catch (e) {
-                break;
-            }
-
-            if (page === 1) {
-                firstDom = dom;
-                firstSource = source;
-
-                const h1 = dom?.querySelector?.('h1');
-                const title = (h1?.innerText || h1?.textContent || '').split('\n')[0]?.trim();
-                if (title) folderName = sanitizeName(title);
-            }
-
-            const slugs = extractSlugsFromDom(dom);
-            if (!slugs.length) break;
-
-            const fresh = [];
-            for (const s of slugs) {
-                if (!s || seen.has(s)) continue;
-                seen.add(s);
-                fresh.push(s);
-            }
-
-            if (!fresh.length) break;
-
-            const urls = await asyncPool(CONCURRENCY, fresh, async (slug) => {
-                const response = await http.post(
-                    vsEndpoint,
-                    JSON.stringify({ slug }),
-                    {},
-                    {
-                        'Content-Type': 'application/json',
-                        Referer: pageUrl,
-                        Origin: origin,
+                const runners = Array.from({ length: Math.max(1, limit) }, async () => {
+                    while (true) {
+                        const idx = i++;
+                        if (idx >= items.length) break;
+                        try {
+                            results[idx] = await worker(items[idx], idx);
+                        } catch (e) {
+                            results[idx] = null;
+                        }
                     }
-                );
+                });
 
-                const data = JSON.parse(response?.source || '{}');
-                return decodeFinalUrl(data);
-            });
+                await Promise.all(runners);
+                return results;
+            };
 
-            for (const u of urls) if (u) resolved.push(u);
+            const origin = (() => {
+                try { return new URL(baseUrl).origin; } catch (e) { return 'https://bunkr.cr'; }
+            })();
+
+            const vsEndpoint = `${origin}/api/vs`;
+
+            let folderName = null;
+
+            const MAX_PAGES = 500;
+            const CONCURRENCY = 8;
+
+            for (let page = 1; page <= MAX_PAGES; page++) {
+                const pageUrl = `${baseUrl}?page=${page}`;
+
+                if (typeof progressCB === 'function') {
+                    progressCB(`Resolving: ${pageUrl}`);
+                }
+
+                let dom, source;
+                try {
+                    ({ dom, source } = await http.get(pageUrl));
+                } catch (e) {
+                    break;
+                }
+
+                if (page === 1) {
+                    firstDom = dom;
+                    firstSource = source;
+
+                    const h1 = dom?.querySelector?.('h1');
+                    const title = (h1?.innerText || h1?.textContent || '').split('\n')[0]?.trim();
+                    if (title) folderName = sanitizeName(title);
+                }
+
+                const slugs = extractSlugsFromDom(dom);
+                if (!slugs.length) break;
+
+                const fresh = [];
+                for (const s of slugs) {
+                    if (!s || seen.has(s)) continue;
+                    seen.add(s);
+                    fresh.push(s);
+                }
+
+                if (!fresh.length) break;
+
+                const urls = await asyncPool(CONCURRENCY, fresh, async (slug) => {
+                    const response = await http.post(
+                        vsEndpoint,
+                        JSON.stringify({ slug }),
+                        {},
+                        {
+                            'Content-Type': 'application/json',
+                            Referer: pageUrl,
+                            Origin: origin,
+                        }
+                    );
+
+                    const data = JSON.parse(response?.source || '{}');
+                    return decodeFinalUrl(data);
+                });
+
+                for (const u of urls) if (u) resolved.push(u);
+            }
+
+            if (!folderName) folderName = h.basename(baseUrl);
+
+            return {
+                dom: firstDom,
+                source: firstSource,
+                folderName,
+                resolved,
+            };
         }
-
-        if (!folderName) folderName = h.basename(baseUrl);
-
-        return {
-            dom: firstDom,
-            source: firstSource,
-            folderName,
-            resolved,
-        };
-    }
-],
+    ],
 
     [
         [/give.xxx\//],
@@ -2061,8 +2169,8 @@ const resolvers = [
                         ...parsed.flatMap(i => {
                             return i.media_attachments
                                 .map(a => {
-                                return a.sizes;
-                            })
+                                    return a.sizes;
+                                })
                                 .map(s => s.large || s.normal || s.small);
                         }),
                     );
@@ -2106,34 +2214,34 @@ const resolvers = [
                     },
                 );
                 const script = [...dom.querySelectorAll('script')]
-                .map(s => s.innerText)
-                .filter(s => /var\smedia_\d+/gis.test(s))
-                .map(s => {
-                    return {
-                        mediaVars: h.re.matchAll(/var\smedia_\d+=.*?;/gis, s),
-                        flashVars: s,
-                    };
-                })[0];
+                    .map(s => s.innerText)
+                    .filter(s => /var\smedia_\d+/gis.test(s))
+                    .map(s => {
+                        return {
+                            mediaVars: h.re.matchAll(/var\smedia_\d+=.*?;/gis, s),
+                            flashVars: s,
+                        };
+                    })[0];
 
                 const { mediaVars, flashVars } = script;
 
                 return mediaVars
                     .map(m => {
-                    const cleaned = m
-                    .replace(/\/\*.*?\*\//gis, '')
-                    .replace(/var\smedia_\d+=/i, '')
-                    .replace(';', '');
+                        const cleaned = m
+                            .replace(/\/\*.*?\*\//gis, '')
+                            .replace(/var\smedia_\d+=/i, '')
+                            .replace(';', '');
 
-                    return cleaned
-                        .split('+')
-                        .map(s => s.trim())
-                        .map(s => {
-                        let value = new RegExp(`var ${s}=".*?"`, 'isg').exec(flashVars)[0];
-                        value = value.replace(/.*?"/i, '').replace(/"/i, '');
-                        return value;
+                        return cleaned
+                            .split('+')
+                            .map(s => s.trim())
+                            .map(s => {
+                                let value = new RegExp(`var ${s}=".*?"`, 'isg').exec(flashVars)[0];
+                                value = value.replace(/.*?"/i, '').replace(/"/i, '');
+                                return value;
+                            })
+                            .join('');
                     })
-                        .join('');
-                })
                     .find(url => url.indexOf('pornhub.com/video/get_media?s=') > -1);
             };
 
@@ -2163,7 +2271,7 @@ const resolvers = [
                             break;
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
                 await h.delayedResolve(1000);
                 tries++;
             } while (!parsed && tries < 20);
@@ -2174,188 +2282,188 @@ const resolvers = [
     [
         [/gofile.io\/d/],
         async (url, http, spoilers, postId) => {
-        const WT_KEY = 'xfpd_gofile_wt';
-        const AT_KEY = 'xfpd_gofile_at';
-        const WT_MAX_AGE_MS = 24 * 3600 * 1000;
-        const AT_MAX_AGE_MS = 24 * 3600 * 1000;
+            const WT_KEY = 'xfpd_gofile_wt';
+            const AT_KEY = 'xfpd_gofile_at';
+            const WT_MAX_AGE_MS = 24 * 3600 * 1000;
+            const AT_MAX_AGE_MS = 24 * 3600 * 1000;
 
-        const gmGet = (key, fallback) => {
-            try {
-                return typeof GM_getValue === 'function' ? GM_getValue(key, fallback) : fallback;
-            } catch (e) {
-                return fallback;
-            }
-        };
-
-        const gmSet = (key, val) => {
-            try {
-                if (typeof GM_setValue === 'function') GM_setValue(key, val);
-            } catch (e) {}
-        };
-
-        const gmReq = async (method, url, data = null, headers = {}, responseType = 'text') => {
-            return await http.base(method, url, {}, headers, data, responseType);
-        };
-
-        const getWebsiteToken = async (force = false) => {
-            const now = Date.now();
-            const cached = gmGet(WT_KEY, null);
-
-            if (!force && cached && cached.value && cached.ts && now - cached.ts < WT_MAX_AGE_MS) {
-                return cached.value;
-            }
-
-            const candidates = ['https://gofile.io/dist/js/config.js', 'https://gofile.io/dist/js/alljs.js'];
-
-            for (const u of candidates) {
+            const gmGet = (key, fallback) => {
                 try {
-                    const { source } = await gmReq('GET', u, null, {}, 'text');
-                    const txt = source || '';
+                    return typeof GM_getValue === 'function' ? GM_getValue(key, fallback) : fallback;
+                } catch (e) {
+                    return fallback;
+                }
+            };
 
-                    const m =
-                        txt.match(/\bwt\s*=\s*"([^"]+)"/) ||
-                        txt.match(/fetchData\.wt\s*=\s*"([^"]+)"/) ||
-                        txt.match(/"wt"\s*:\s*"([^"]+)"/);
+            const gmSet = (key, val) => {
+                try {
+                    if (typeof GM_setValue === 'function') GM_setValue(key, val);
+                } catch (e) { }
+            };
 
-                    if (m && m[1]) {
-                        gmSet(WT_KEY, { value: m[1], ts: now });
-                        return m[1];
+            const gmReq = async (method, url, data = null, headers = {}, responseType = 'text') => {
+                return await http.base(method, url, {}, headers, data, responseType);
+            };
+
+            const getWebsiteToken = async (force = false) => {
+                const now = Date.now();
+                const cached = gmGet(WT_KEY, null);
+
+                if (!force && cached && cached.value && cached.ts && now - cached.ts < WT_MAX_AGE_MS) {
+                    return cached.value;
+                }
+
+                const candidates = ['https://gofile.io/dist/js/config.js', 'https://gofile.io/dist/js/alljs.js'];
+
+                for (const u of candidates) {
+                    try {
+                        const { source } = await gmReq('GET', u, null, {}, 'text');
+                        const txt = source || '';
+
+                        const m =
+                            txt.match(/\bwt\s*=\s*"([^"]+)"/) ||
+                            txt.match(/fetchData\.wt\s*=\s*"([^"]+)"/) ||
+                            txt.match(/"wt"\s*:\s*"([^"]+)"/);
+
+                        if (m && m[1]) {
+                            gmSet(WT_KEY, { value: m[1], ts: now });
+                            return m[1];
+                        }
+                    } catch (e) { }
+                }
+
+                throw new Error('Could not extract GoFile website token (WT).');
+            };
+
+            const createAccountToken = async wt => {
+                const { source } = await gmReq(
+                    'POST',
+                    'https://api.gofile.io/accounts',
+                    JSON.stringify({}),
+                    {
+                        accept: 'application/json',
+                        'content-type': 'application/json',
+                        'x-website-token': wt,
+                    },
+                    'text',
+                );
+
+                const json = JSON.parse(source || '{}');
+
+                if (!json || json.status !== 'ok' || !json.data || !json.data.token) {
+                    throw new Error(`createAccount failed: ${json?.message || json?.status || 'unknown'}`);
+                }
+
+                const token = json.data.token;
+
+                try {
+                    settings.hosts.goFile.token = token;
+                } catch (e) { }
+
+                gmSet(AT_KEY, { token, ts: Date.now() });
+                return token;
+            };
+
+            const getAccountToken = async (force = false) => {
+                // If the user provided a personal Bearer token, always use it.
+                // (This is optional; leaving it empty keeps the anonymous account-token flow.)
+                try {
+                    const override = settings?.hosts?.goFile?.bearerOverride;
+                    if (override && String(override).trim() !== '') {
+                        return String(override).trim();
                     }
-                } catch (e) {}
-            }
+                } catch (e) { }
 
-            throw new Error('Could not extract GoFile website token (WT).');
-        };
+                const now = Date.now();
 
-        const createAccountToken = async wt => {
-            const { source } = await gmReq(
-                'POST',
-                'https://api.gofile.io/accounts',
-                JSON.stringify({}),
-                {
-                    accept: 'application/json',
-                    'content-type': 'application/json',
-                    'x-website-token': wt,
-                },
-                'text',
-            );
-
-            const json = JSON.parse(source || '{}');
-
-            if (!json || json.status !== 'ok' || !json.data || !json.data.token) {
-                throw new Error(`createAccount failed: ${json?.message || json?.status || 'unknown'}`);
-            }
-
-            const token = json.data.token;
-
-            try {
-                settings.hosts.goFile.token = token;
-            } catch (e) {}
-
-            gmSet(AT_KEY, { token, ts: Date.now() });
-            return token;
-        };
-
-        const getAccountToken = async (force = false) => {
-            // If the user provided a personal Bearer token, always use it.
-            // (This is optional; leaving it empty keeps the anonymous account-token flow.)
-            try {
-                const override = settings?.hosts?.goFile?.bearerOverride;
-                if (override && String(override).trim() !== '') {
-                    return String(override).trim();
+                const cached = gmGet(AT_KEY, null);
+                if (!force && cached && cached.token && cached.ts && now - cached.ts < AT_MAX_AGE_MS) {
+                    try {
+                        settings.hosts.goFile.token = cached.token;
+                    } catch (e) { }
+                    return cached.token;
                 }
-            } catch (e) {}
 
-            const now = Date.now();
-
-            const cached = gmGet(AT_KEY, null);
-            if (!force && cached && cached.token && cached.ts && now - cached.ts < AT_MAX_AGE_MS) {
                 try {
-                    settings.hosts.goFile.token = cached.token;
-                } catch (e) {}
-                return cached.token;
-            }
+                    if (!force && settings && settings.hosts && settings.hosts.goFile && settings.hosts.goFile.token) {
+                        return settings.hosts.goFile.token;
+                    }
+                } catch (e) { }
 
-            try {
-                if (!force && settings && settings.hosts && settings.hosts.goFile && settings.hosts.goFile.token) {
-                    return settings.hosts.goFile.token;
+                const wt = await getWebsiteToken(false);
+                return await createAccountToken(wt);
+            };
+
+            const apiContentsRaw = async (contentId, passwordHash, wt, token) => {
+                let apiUrl = `https://api.gofile.io/contents/${encodeURIComponent(contentId)}`;
+                if (passwordHash) apiUrl += `?password=${encodeURIComponent(passwordHash)}`;
+
+                const { source } = await gmReq(
+                    'GET',
+                    apiUrl,
+                    null,
+                    {
+                        accept: 'application/json',
+                        authorization: `Bearer ${token}`,
+                        'x-website-token': wt,
+                    },
+                    'text',
+                );
+
+                return JSON.parse(source || '{}');
+            };
+
+            const apiContents = async (contentId, passwordHash) => {
+                let wt = await getWebsiteToken(false);
+                let token = await getAccountToken(false);
+
+                let json = await apiContentsRaw(contentId, passwordHash, wt, token);
+                if (json && json.status === 'ok') return json;
+
+                const s = String(json?.status || json?.message || '').toLowerCase();
+
+                if (s.includes('unauthorized') || s.includes('token') || s.includes('invalid')) {
+                    wt = await getWebsiteToken(true);
+                    token = await getAccountToken(true);
+                    json = await apiContentsRaw(contentId, passwordHash, wt, token);
+                    return json;
                 }
-            } catch (e) {}
 
-            const wt = await getWebsiteToken(false);
-            return await createAccountToken(wt);
-        };
-
-        const apiContentsRaw = async (contentId, passwordHash, wt, token) => {
-            let apiUrl = `https://api.gofile.io/contents/${encodeURIComponent(contentId)}`;
-            if (passwordHash) apiUrl += `?password=${encodeURIComponent(passwordHash)}`;
-
-            const { source } = await gmReq(
-                'GET',
-                apiUrl,
-                null,
-                {
-                    accept: 'application/json',
-                    authorization: `Bearer ${token}`,
-                    'x-website-token': wt,
-                },
-                'text',
-            );
-
-            return JSON.parse(source || '{}');
-        };
-
-        const apiContents = async (contentId, passwordHash) => {
-            let wt = await getWebsiteToken(false);
-            let token = await getAccountToken(false);
-
-            let json = await apiContentsRaw(contentId, passwordHash, wt, token);
-            if (json && json.status === 'ok') return json;
-
-            const s = String(json?.status || json?.message || '').toLowerCase();
-
-            if (s.includes('unauthorized') || s.includes('token') || s.includes('invalid')) {
-                wt = await getWebsiteToken(true);
-                token = await getAccountToken(true);
-                json = await apiContentsRaw(contentId, passwordHash, wt, token);
                 return json;
-            }
+            };
 
-            return json;
-        };
+            const resolveAlbum = async (urlOrId, spoilers) => {
+                const id = String(urlOrId).includes('gofile.io/d/') ? String(urlOrId).split('/').reverse()[0] : String(urlOrId);
 
-        const resolveAlbum = async (urlOrId, spoilers) => {
-            const id = String(urlOrId).includes('gofile.io/d/') ? String(urlOrId).split('/').reverse()[0] : String(urlOrId);
+                let props = await apiContents(id, null);
 
-            let props = await apiContents(id, null);
-
-            if (props && props.status === 'error-notFound') {
-                log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
+                if (props && props.status === 'error-notFound') {
+                    log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
                     return null;
                 }
 
-            if (props && props.status === 'error-notPublic') {
-                log.host.error(postId, `::Album not public::: ${urlOrId}`, 'gofile.io');
+                if (props && props.status === 'error-notPublic') {
+                    log.host.error(postId, `::Album not public::: ${urlOrId}`, 'gofile.io');
                     return null;
                 }
 
-            if (props && props.status === 'error-passwordRequired') {
-                log.host.info(postId, `::Album requires password::: ${urlOrId}`, 'gofile.io');
+                if (props && props.status === 'error-passwordRequired') {
+                    log.host.info(postId, `::Album requires password::: ${urlOrId}`, 'gofile.io');
 
-                if (!spoilers || !spoilers.length) {
-                    return props;
-                }
+                    if (!spoilers || !spoilers.length) {
+                        return props;
+                    }
 
-                        log.host.info(postId, `::Trying with ${spoilers.length} available password(s)::`, 'gofile.io');
+                    log.host.info(postId, `::Trying with ${spoilers.length} available password(s)::`, 'gofile.io');
 
                     for (const spoiler of spoilers) {
                         const hash = sha256(spoiler);
-                    const attempt = await apiContents(id, hash);
+                        const attempt = await apiContents(id, hash);
 
-                    if (attempt && attempt.status === 'ok') {
+                        if (attempt && attempt.status === 'ok') {
                             log.host.info(postId, `::Successfully authenticated with:: ${spoiler}`, 'gofile.io');
-                        props = attempt;
-                        break;
+                            props = attempt;
+                            break;
                         }
                     }
                 }
@@ -2367,12 +2475,12 @@ const resolvers = [
 
             let folderName = h.basename(url);
 
-        if (!props || props.status !== 'ok' || !props.data) {
-            if (props && props.status === 'error-passwordRequired') {
-                log.host.error(postId, `::Password required (no valid password found)::: ${url}`, 'gofile.io');
-            } else {
-                log.host.error(postId, `::Unable to resolve album::: ${url}`, 'gofile.io');
-            }
+            if (!props || props.status !== 'ok' || !props.data) {
+                if (props && props.status === 'error-passwordRequired') {
+                    log.host.error(postId, `::Password required (no valid password found)::: ${url}`, 'gofile.io');
+                } else {
+                    log.host.error(postId, `::Unable to resolve album::: ${url}`, 'gofile.io');
+                }
 
                 return {
                     dom: null,
@@ -2391,41 +2499,41 @@ const resolvers = [
 
                 const resolved = [];
 
-            folderName = props.data.name || folderName;
+                folderName = props.data.name || folderName;
 
                 const files = props.data.children;
 
                 for (const file in files) {
                     const obj = files[file];
 
-                if (!obj) continue;
+                    if (!obj) continue;
 
                     if (obj.type === 'file') {
-                    const fileId = obj.id || obj.code;
-                    const fileName = encodeURIComponent(obj.name || fileId || 'file');
+                        const fileId = obj.id || obj.code;
+                        const fileName = encodeURIComponent(obj.name || fileId || 'file');
 
-                    // Prefer direct/CDN links when available. Do NOT force /download/web/
-                    // (web flow can return album HTML).
-                    const candidates = [obj.directLink, obj.link, obj.downloadLink].filter(Boolean);
-                    let link =
-                        candidates.find(u => /\/download\/direct\//i.test(String(u))) ||
-                        candidates[0] ||
-                        (fileId ? `https://gofile.io/download/web/${fileId}/${fileName}` : null);
+                        // Prefer direct/CDN links when available. Do NOT force /download/web/
+                        // (web flow can return album HTML).
+                        const candidates = [obj.directLink, obj.link, obj.downloadLink].filter(Boolean);
+                        let link =
+                            candidates.find(u => /\/download\/direct\//i.test(String(u))) ||
+                            candidates[0] ||
+                            (fileId ? `https://gofile.io/download/web/${fileId}/${fileName}` : null);
 
-                    if (link) {
-                        // Preserve original GoFile filename (from API) so we don't rely on URL-encoded path segment.
-                        try {
-                            if (obj.name) {
-                                if (fileId) gofileNameById.set(String(fileId), String(obj.name));
-                                if (link) gofileNameByUrl.set(String(link), String(obj.name));
-                            }
-                        } catch (e) {}resolved.push(link);
-                    }
-                } else if (obj.type === 'folder') {
-                    const folderId = obj.id || obj.code;
-                    if (!folderId) continue;
+                        if (link) {
+                            // Preserve original GoFile filename (from API) so we don't rely on URL-encoded path segment.
+                            try {
+                                if (obj.name) {
+                                    if (fileId) gofileNameById.set(String(fileId), String(obj.name));
+                                    if (link) gofileNameByUrl.set(String(link), String(obj.name));
+                                }
+                            } catch (e) { } resolved.push(link);
+                        }
+                    } else if (obj.type === 'folder') {
+                        const folderId = obj.id || obj.code;
+                        if (!folderId) continue;
 
-                    const folderProps = await resolveAlbum(folderId, spoilers);
+                        const folderProps = await resolveAlbum(folderId, spoilers);
                         resolved.push(...(await getChildAlbums(folderProps, spoilers)));
                     }
                 }
@@ -2607,9 +2715,9 @@ const resolvers = [
             const invalidSub = settings.naming.invalidCharSubstitute || '_';
 
             let safeTitle = rawTitle
-            .replace(/[\\/:*?"<>|]/g, invalidSub)
-            .replace(/\s+/g, ' ')
-            .trim();
+                .replace(/[\\/:*?"<>|]/g, invalidSub)
+                .replace(/\s+/g, ' ')
+                .trim();
 
             // Cap title to avoid extremely long Windows paths
             if (safeTitle.length > 120) safeTitle = safeTitle.slice(0, 120).trim();
@@ -2633,17 +2741,17 @@ const resolvers = [
 
             // Collect video ids (and names) from the table rows (server-rendered HTML)
             let ids = Array.from(dom?.querySelectorAll('tr.file-row') || [])
-            .map(row => {
-                const a = row.querySelector('a[href^="/v/"]');
-                const id = (a?.getAttribute('href') || '').match(/\/v\/([^\/?#]+)/i)?.[1];
-                if (id) {
-                    const nm = row.getAttribute('data-name') || row.dataset?.name;
-                    if (nm) idToName.set(id, nm);
-                }
-                return id;
-            })
-            .filter(Boolean)
-            .unique();
+                .map(row => {
+                    const a = row.querySelector('a[href^="/v/"]');
+                    const id = (a?.getAttribute('href') || '').match(/\/v\/([^\/?#]+)/i)?.[1];
+                    if (id) {
+                        const nm = row.getAttribute('data-name') || row.dataset?.name;
+                        if (nm) idToName.set(id, nm);
+                    }
+                    return id;
+                })
+                .filter(Boolean)
+                .unique();
 
             // Fallback: regex scan (if DOM parsing fails)
             if (!ids.length && source) {
@@ -2682,7 +2790,7 @@ const resolvers = [
                                 break;
                             }
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 // Fallback: if signing fails, try to read media URL from the embed page
@@ -2690,12 +2798,12 @@ const resolvers = [
                     try {
                         const { dom: edom } = await http.get(embedUrl, {}, { Referer: embedUrl });
                         const src =
-                              edom?.querySelector('source[src]')?.getAttribute('src') ||
-                              edom?.querySelector('video[src]')?.getAttribute('src');
+                            edom?.querySelector('source[src]')?.getAttribute('src') ||
+                            edom?.querySelector('video[src]')?.getAttribute('src');
                         if (src) {
                             signed = new URL(src, embedUrl).toString();
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 // If we got a Turbo CDN URL and have an original name, attach fn=
@@ -2709,7 +2817,7 @@ const resolvers = [
 
                 // If sign fails, keep a workable fallback
                 if (signed && id) {
-                    try { turboIdBySignedUrl.set(String(signed), String(id)); } catch (e) {}
+                    try { turboIdBySignedUrl.set(String(signed), String(id)); } catch (e) { }
                 }
                 resolved.push(signed || `https://turbo.cr/d/${id}`);
             }
@@ -2755,19 +2863,19 @@ const resolvers = [
                             return signed;
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             // Fallback: try to read <source>/<video> directly from the embed page
             try {
                 const { dom } = await http.get(embedUrl, {}, { Referer: embedUrl });
                 const src =
-                      dom?.querySelector('source[src]')?.getAttribute('src') ||
-                      dom?.querySelector('video[src]')?.getAttribute('src');
+                    dom?.querySelector('source[src]')?.getAttribute('src') ||
+                    dom?.querySelector('video[src]')?.getAttribute('src');
                 if (src) {
                     return new URL(src, embedUrl).toString();
                 }
-            } catch (e) {}
+            } catch (e) { }
 
             // Last fallback: the site's direct download route
             return `https://turbo.cr/d/${id}`;
@@ -2785,8 +2893,8 @@ const resolvers = [
 
             const embedUrl = `https://turbo.cr/embed/${id}`;
             const signUrls = [
-                `https://turbo.cr/api/sign?v=${encodeURIComponent(id)}` ,
-                `https://turbo.cr/sign?v=${encodeURIComponent(id)}` ,// legacy fallback
+                `https://turbo.cr/api/sign?v=${encodeURIComponent(id)}`,
+                `https://turbo.cr/sign?v=${encodeURIComponent(id)}`,// legacy fallback
             ];
 
             // Primary: use Turbo's sign endpoint (player does this)
@@ -2808,19 +2916,19 @@ const resolvers = [
                             return signed;
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             // Fallback: try to read <source> / <video> directly if present
             try {
                 const { dom } = await http.get(embedUrl, {}, { Referer: embedUrl });
                 const src =
-                      dom?.querySelector('source[src]')?.getAttribute('src') ||
-                      dom?.querySelector('video[src]')?.getAttribute('src');
+                    dom?.querySelector('source[src]')?.getAttribute('src') ||
+                    dom?.querySelector('video[src]')?.getAttribute('src');
                 if (src) {
                     return new URL(src, embedUrl).toString();
                 }
-            } catch (e) {}
+            } catch (e) { }
 
             return null;
 
@@ -2850,7 +2958,7 @@ const resolvers = [
                         }
                         return token || null;
                     }
-                } catch (e) {}
+                } catch (e) { }
                 return null;
             };
 
@@ -2976,13 +3084,13 @@ const resolvers = [
             };
         },
     ],
-[
+    [
         [/redgifs\.com(\/|\\\/)(ifr|watch|gifs\/detail|gifs\/watch)/i],
         async (url, http) => {
             const raw = String(url || '');
             const idMatch =
-                  raw.match(/redgifs\.com(?:\/|\\\/)(?:ifr(?:\/|\\\/)|watch(?:\/|\\\/)|gifs(?:\/|\\\/)detail(?:\/|\\\/))?([a-z0-9_-]+)/i) ||
-                  raw.match(/\/([a-z0-9_-]+)(?:\?.*)?$/i);
+                raw.match(/redgifs\.com(?:\/|\\\/)(?:ifr(?:\/|\\\/)|watch(?:\/|\\\/)|gifs(?:\/|\\\/)detail(?:\/|\\\/))?([a-z0-9_-]+)/i) ||
+                raw.match(/\/([a-z0-9_-]+)(?:\?.*)?$/i);
             const id = (idMatch && idMatch[1] ? String(idMatch[1]) : '').match(/[a-z0-9_-]+/i)?.[0];
 
             if (!id) {
@@ -2999,7 +3107,7 @@ const resolvers = [
                         }
                         return token || null;
                     }
-                } catch (e) {}
+                } catch (e) { }
                 return null;
             };
 
@@ -3080,7 +3188,7 @@ const resolvers = [
 
                 const pageUrl = url;
                 let pageOrigin = 'https://cyberdrop.cr';
-                try { pageOrigin = new URL(pageUrl).origin; } catch (e) {}
+                try { pageOrigin = new URL(pageUrl).origin; } catch (e) { }
 
                 const decodeHtml = (s) => {
                     try {
@@ -3132,7 +3240,7 @@ const resolvers = [
 
                 const pickTitle = (src) => {
                     const m1 = src.match(/property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
-                               src.match(/content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+                        src.match(/content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
                     const m2 = src.match(/<h1[^>]*>([^<]+)<\/h1>/i);
                     const m3 = src.match(/<title[^>]*>([^<]+)<\/title>/i);
                     let t = (m1 && (m1[1] || m1[2])) || (m2 && m2[1]) || (m3 && m3[1]) || '';
@@ -3385,7 +3493,7 @@ const resolvers = [
                                     }
                                     // plain hostname
                                     if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(t)) return `https://${t}`;
-                                } catch (e) {}
+                                } catch (e) { }
                                 return null;
                             };
 
@@ -3492,7 +3600,7 @@ const resolvers = [
                                 const base = out.base || apiBase;
                                 out.direct = `${base.replace(/\/$/, '')}/api/file/d/${slug}?token=${tok}`;
                             }
-                        } catch (e) {}
+                        } catch (e) { }
 
                         // Normalize escaped slashes if needed
                         if (out.direct && typeof out.direct === 'string' && out.direct.includes('\\/')) {
@@ -3525,7 +3633,7 @@ const resolvers = [
                             if (status !== 200 || !source) continue;
 
                             let baseHint = apiBaseDefault;
-                            try { baseHint = new URL(apiUrl).origin; } catch (e) {}
+                            try { baseHint = new URL(apiUrl).origin; } catch (e) { }
                             const { direct, name, auth } = parseInfoText(source, baseHint);
 
                             let resolvedName = name || null;
@@ -3538,12 +3646,12 @@ const resolvers = [
                                     const { source: authSource, status: authStatus } = await cyberdropFetchText(authUrl);
                                     if (authStatus === 200 && authSource) {
                                         let authBase = baseHint;
-                                        try { authBase = new URL(authUrl).origin; } catch (e) {}
+                                        try { authBase = new URL(authUrl).origin; } catch (e) { }
                                         const parsedAuth = parseInfoText(authSource, authBase);
                                         if (!resolvedName && parsedAuth && parsedAuth.name) resolvedName = parsedAuth.name;
                                         if (!resolvedDirect && parsedAuth && parsedAuth.direct) resolvedDirect = parsedAuth.direct;
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
                             }
 
                             if (resolvedName) cyberdropNameBySlug.set(String(slug), String(resolvedName));
@@ -3552,7 +3660,7 @@ const resolvers = [
                                 if (resolvedName) cyberdropNameByUrl.set(String(resolvedDirect), String(resolvedName));
                                 return resolvedDirect;
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                     }
                     return null;
                 };
@@ -3575,7 +3683,7 @@ const resolvers = [
             }
         },
     ],
-[
+    [
         [/noodlemagazine.com\/watch\//],
         async (url, http) => {
             const { dom } = await http.get(url);
@@ -3663,8 +3771,8 @@ const resolvers = [
         async (url, http) => {
             const { source, dom } = await http.get(url);
             const resolved = [...dom.querySelectorAll('.image-container > img')]
-            .map(i => i.getAttribute('src'))
-            .map(url => url.replace('.th.', '.').replace('.md.', '.'));
+                .map(i => i.getAttribute('src'))
+                .map(url => url.replace('.th.', '.').replace('.md.', '.'));
 
             return {
                 dom,
@@ -3702,8 +3810,8 @@ const resolvers = [
             const { source, dom } = await http.get(url);
 
             const resolved = [...dom?.querySelectorAll('#gallery-view-content > a > img')]
-            .map(img => img.getAttribute('src'))
-            .map(url => url.replace(/(thumbs|t)(\d+)\./gis, 'images$2.').replace('_b.', '_o.'));
+                .map(img => img.getAttribute('src'))
+                .map(url => url.replace(/(thumbs|t)(\d+)\./gis, 'images$2.').replace('_b.', '_o.'));
 
             return {
                 dom,
@@ -3796,7 +3904,7 @@ const setProcessing = (isProcessing, postId) => {
     }
 };
 
-const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}) => {
+const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}, overrideThreadTitle = null) => {
     const { postId, postNumber } = parsedPost;
 
     const postSettings = getSettingsCB();
@@ -3886,13 +3994,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 try {
                     const progressCB = (t) => {
-    try {
-        h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
-        h.ui.setText(statusLabel, t);
-    } catch (e) {}
-};
+                        try {
+                            h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
+                            h.ui.setText(statusLabel, t);
+                        } catch (e) { }
+                    };
 
-r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
+                    r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
                 } catch (e) {
                     if (host.name === 'Cyberdrop' && /cyberdrop\.[a-z]{2,}\/a\//i.test(String(resource))) {
                         continue;
@@ -3935,11 +4043,11 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
 
                 if (h.isArray(r.resolved)) {
                     r.resolved.forEach(url => {
-                    try {
-                        addResolved(url, r.folderName);
-                    } catch (e) {
-                    }
-                });
+                        try {
+                            addResolved(url, r.folderName);
+                        } catch (e) {
+                        }
+                    });
                 } else {
                     addResolved(r, null);
                 }
@@ -4059,7 +4167,7 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
     log.post.info(postId, `::Found ${totalDownloadable} resource(s)::`, postNumber);
     log.separator(postId);
 
-    const threadTitle = parsers.thread.parseTitle();
+    const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
 
     let customFilename = postSettings.output.find(o => o.postId === postId)?.value;
 
@@ -4102,28 +4210,28 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
         const batches = [];
 
         // Build batches:
-// - keep existing concurrency (batchLength) for speed
-// - but never put more than ONE GoFile item in the same batch (prevents GoFile "gate" spam / soft-block cascades)
-const isGoFileUrlBatch = u => /gofile\.io/i.test(String(u || ''));
+        // - keep existing concurrency (batchLength) for speed
+        // - but never put more than ONE GoFile item in the same batch (prevents GoFile "gate" spam / soft-block cascades)
+        const isGoFileUrlBatch = u => /gofile\.io/i.test(String(u || ''));
 
-let tmp = [];
-let tmpHasGoFile = false;
+        let tmp = [];
+        let tmpHasGoFile = false;
 
-for (const item of resources) {
-    const isGF = isGoFileUrlBatch(item.url);
-    // if current batch is full OR would contain 2x GoFile -> flush
-    if (tmp.length >= batchLength || (tmpHasGoFile && isGF)) {
-        batches.push(tmp);
-        tmp = [];
-        tmpHasGoFile = false;
-    }
+        for (const item of resources) {
+            const isGF = isGoFileUrlBatch(item.url);
+            // if current batch is full OR would contain 2x GoFile -> flush
+            if (tmp.length >= batchLength || (tmpHasGoFile && isGF)) {
+                batches.push(tmp);
+                tmp = [];
+                tmpHasGoFile = false;
+            }
 
-    tmp.push(item);
-    if (isGF) tmpHasGoFile = true;
-}
+            tmp.push(item);
+            if (isGF) tmpHasGoFile = true;
+        }
 
-if (tmp.length) {
-    batches.push(tmp);
+        if (tmp.length) {
+            batches.push(tmp);
         }
 
         const getNextBatch = () => {
@@ -4159,7 +4267,7 @@ if (tmp.length) {
             const turboExtractId = u => {
                 const s = String(u || '');
                 const m = s.match(/\/\/(?:[\w-]+\.)?turbo\.cr\/(?:v|d|embed)\/([^\/?#]+)/i) ||
-                          s.match(/\/\/(?:[\w-]+\.)?turbovid\.cr\/(?:v|d|embed)\/([^\/?#]+)/i);
+                    s.match(/\/\/(?:[\w-]+\.)?turbovid\.cr\/(?:v|d|embed)\/([^\/?#]+)/i);
                 return (m && m[1]) ? m[1] : '';
             };
 
@@ -4213,7 +4321,7 @@ if (tmp.length) {
                         signed += (signed.includes('?') ? '&' : '?') + 'fn=' + enc;
                     }
 
-                    try { turboIdBySignedUrl.set(String(signed), String(turboId)); } catch (e) {}
+                    try { turboIdBySignedUrl.set(String(signed), String(turboId)); } catch (e) { }
                     return signed;
                 }
                 return null;
@@ -4273,7 +4381,7 @@ if (tmp.length) {
                     GM_xmlhttpRequest({
                         method: 'HEAD',
                         url: headUrl,
-                                                onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '' }),
+                        onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '' }),
                         onerror: () => resolve({ ok: false, status: 0, headers: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, headers: '' }),
                     });
@@ -4287,7 +4395,7 @@ if (tmp.length) {
                     GM_xmlhttpRequest({
                         method: 'GET',
                         url: getUrl,
-                                                onload: r => resolve({ ok: true, status: r.status, text: r.responseText || '' }),
+                        onload: r => resolve({ ok: true, status: r.status, text: r.responseText || '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '' }),
                     });
@@ -4319,7 +4427,7 @@ if (tmp.length) {
                                     const v = j && (j.value || j.data || j);
                                     meta.size = extractNum((v && (v.size ?? v.bytes ?? v.length)) ?? (j && (j.size ?? j.bytes)));
                                     meta.filename = String((v && (v.name ?? v.filename ?? v.title)) ?? (j && (j.name ?? j.filename)) ?? '');
-                                } catch (e) {}
+                                } catch (e) { }
                             }
                         }
                     }
@@ -4335,7 +4443,7 @@ if (tmp.length) {
                         const cdName = parseDispositionFilename(meta.headers);
                         if (cdName) meta.filename = cdName;
                     }
-                } catch (e) {}
+                } catch (e) { }
 
                 preflightMetaCache.set(key, meta);
                 return meta;
@@ -4346,10 +4454,10 @@ if (tmp.length) {
                     const tab = GM_openInTab(warmUrl, { active: false, insert: true, setParent: true });
                     if (tab && typeof tab.close === 'function') {
                         setTimeout(() => {
-                            try { tab.close(); } catch (e) {}
+                            try { tab.close(); } catch (e) { }
                         }, GOFILE_WARMUP_MS);
                     }
-                } catch (e) {}
+                } catch (e) { }
             };
 
             const startDownload = async (resource, pass = 1) => {
@@ -4370,13 +4478,13 @@ if (tmp.length) {
                 h.ui.setElProps(statusLabel, { fontWeight: 'normal' });
 
                 var reflink = original;
-                if (url.includes('bunkr')){
+                if (url.includes('bunkr')) {
                     reflink = "https://bunkr.si"
                 }
-                if (url.includes('pomf2')){
+                if (url.includes('pomf2')) {
                     reflink = "https://pomf2.lain.la"
                 }
-                if (url.includes('turbocdn.st')){
+                if (url.includes('turbocdn.st')) {
                     reflink = "https://turbo.cr/"
                 }
 
@@ -4394,7 +4502,7 @@ if (tmp.length) {
                         if (cyberSlug) cyberFilePage = `${cyberOrigin}/f/${cyberSlug}`;
                         // Match browser requests: Referer/Origin are usually just https://cyberdrop.cr/
                         reflink = `${cyberOrigin}/`;
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 const ellipsedUrl = h.limit(url, 80);
@@ -4403,7 +4511,7 @@ if (tmp.length) {
                 if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|selti-delivery\.ru/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
 
                     cyberdropDirectWarmupDone = true;
-                                        log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
+                    log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
                     await cyberdropWarmupOnce(cyberOrigin, cyberFilePage, CYBERDROP_WARMUP_MS);
                 }
 
@@ -4531,7 +4639,7 @@ if (tmp.length) {
                         GM_download({
                             url,
                             name: saveAsName,
-                                                        onprogress: e => {
+                            onprogress: e => {
                                 const loadedMB = Number((e.loaded || 0) / 1024 / 1024).toFixed(2);
                                 const totalBytes = (e.total && e.total > 0) ? e.total : (sizeBytes || 0);
                                 const totalMB = totalBytes ? Number(totalBytes / 1024 / 1024).toFixed(2) : '??';
@@ -4592,7 +4700,7 @@ if (tmp.length) {
                     return;
                 }
 
-if (isGoFile || isPixeldrain) {
+                if (isGoFile || isPixeldrain) {
                     const meta0 = await preflightMeta(url, reflink, isGoFile, isPixeldrain);
                     if (meta0 && meta0.size && meta0.size > BLOB_MAX_BYTES) {
                         log.post.info(postId, `::Large file (${meta0.size} bytes > ~1.6GB) -> DIRECT (skip blob)::: ${url}`, postNumber);
@@ -4605,7 +4713,7 @@ if (isGoFile || isPixeldrain) {
                 let abortReason = '';
                 let bunkrMaintenanceHandled = false;
 
-const request = GM_xmlhttpRequest({
+                const request = GM_xmlhttpRequest({
                     url,
                     headers: (/turbocdn\.st/i.test(String(url || '')) ? { Referer: 'https://turbo.cr/' } : { Referer: reflink }),
                     responseType: 'blob',
@@ -4627,7 +4735,7 @@ const request = GM_xmlhttpRequest({
                                 const fu = String(response.finalUrl || '');
                                 if (/\/maint\.mp4(\?|$)/i.test(loc) || /\/maint\.mp4(\?|$)/i.test(fu)) {
                                     abortReason = 'bunkr_maint';
-                                    try { request.abort(); } catch (e) {}
+                                    try { request.abort(); } catch (e) { }
                                 }
                             }
                         }
@@ -4641,7 +4749,7 @@ const request = GM_xmlhttpRequest({
                         if (!switchedToDirect && (isGoFile || isPixeldrain) && response && response.total && response.total > BLOB_MAX_BYTES) {
                             log.post.info(postId, `::Large file (${response.total} bytes > ~1.6GB) detected -> switch to DIRECT::: ${url}`, postNumber);
                             switchedToDirect = true;
-                            try { request.abort(); } catch (e) {}
+                            try { request.abort(); } catch (e) { }
                             startDirectDownload({ size: response.total });
                             return;
                         }
@@ -4688,8 +4796,8 @@ const request = GM_xmlhttpRequest({
                                 }
 
                                 // Retry failed -> mark as unsuccessful and continue.
-                        completed++;
-                        completedBatchedDownloads++;
+                                completed++;
+                                completedBatchedDownloads++;
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -4714,7 +4822,7 @@ const request = GM_xmlhttpRequest({
 
                             if (badStatus || isGate || isTiny) {
                                 if (pass === 1 && cyberOrigin && cyberFilePage) {
-                                                                        log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then retry [1/2]::: ${cyberFilePage}`, postNumber);
+                                    log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then retry [1/2]::: ${cyberFilePage}`, postNumber);
                                     cyberdropWarmupOnce(cyberOrigin, cyberFilePage, CYBERDROP_WARMUP_MS)
                                         .then(() => startDownload(resource, 2))
                                         .catch(() => startDownload(resource, 2));
@@ -4787,7 +4895,7 @@ const request = GM_xmlhttpRequest({
                             }
                         }
 
-// Success path (unchanged)
+                        // Success path (unchanged)
                         completed++;
                         completedBatchedDownloads++;
 
@@ -4846,10 +4954,10 @@ const request = GM_xmlhttpRequest({
                         } else if (url.includes('kemono.cr')) {
                             basename = filename
                                 ? filename.name
-                            : h
-                                .basename(url)
-                                .replace(/(.*)\?f=(.*)/, '$2')
-                                .replace('%20', ' ');
+                                : h
+                                    .basename(url)
+                                    .replace(/(.*)\?f=(.*)/, '$2')
+                                    .replace('%20', ' ');
                         } else if (url.includes('cyberdrop')) {
                             const rh = response && response.responseHeaders ? String(response.responseHeaders) : '';
                             const mCd = rh.match(/^content-disposition.+filename=(.+)$/im);
@@ -4857,7 +4965,7 @@ const request = GM_xmlhttpRequest({
                                 ? String(mCd[1]).replace(/"/g, '')
                                 : (filename ? filename.name : h.basename(url).replace(/\?.*/, '').replace(/#.*/, ''));
 
-                            try { basename = decodeURI(basename); } catch (e) {}
+                            try { basename = decodeURI(basename); } catch (e) { }
 
                             const extMatch = basename.match(/\.\w{3,6}$/);
                             const basename_ext = extMatch ? extMatch[0] : '';
@@ -4962,17 +5070,17 @@ const request = GM_xmlhttpRequest({
                                 url: blobUrl,
                                 name: saveAsName,
                                 onload: () => {
-                                    try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                    try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                 },
                                 onerror: response => {
                                     console.log(`Error writing file ${fn} to disk. There may be more details below.`);
                                     console.log(response);
-                                    try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                    try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                 },
                             });
                         }
 
-                                                if (postSettings.zipped) {
+                        if (postSettings.zipped) {
                             zip.file(fn, fileBlob);
                             zipFileCount++;
                         }
@@ -5019,7 +5127,7 @@ const request = GM_xmlhttpRequest({
 
                 requests.push({ url: progressKey, request });
 
-                                const stallMs = isTurbo ? TURBO_STALL_MS : 30000;
+                const stallMs = isTurbo ? TURBO_STALL_MS : 30000;
 
                 const intervalId = setInterval(async () => {
                     const p = requestProgress.find(r => r.url === progressKey);
@@ -5045,11 +5153,11 @@ const request = GM_xmlhttpRequest({
                                     if (newUrl) {
                                         resource.url = newUrl;
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
 
                                 // Retry once (even if we couldn't re-sign, a plain retry sometimes works).
                                 setTimeout(() => startDownload(resource, pass + 1), st.resign >= 3 ? TURBO_RETRY_DELAY_MS * 2 : TURBO_RETRY_DELAY_MS);
-return;
+                                return;
                             }
 
                             if (st.direct < TURBO_DIRECT_FALLBACKS) {
@@ -5136,12 +5244,12 @@ return;
         const needZipBlob = (postSettings.generateLog || postSettings.generateLinks || (postSettings.zipped && zipFileCount > 0));
 
 
-                // If "Zipped" is enabled but nothing was added to the ZIP (e.g. everything was saved via DIRECT),
-                // skip creating an empty ZIP file.
-                if (postSettings.zipped && zipFileCount === 0 && !postSettings.generateLog && !postSettings.generateLinks) {
-                    log.post.info(postId, `::Zipped ON but nothing to zip (all DIRECT downloads) -> skipping ZIP::`, postNumber);
-                }
-if (needZipBlob) {
+        // If "Zipped" is enabled but nothing was added to the ZIP (e.g. everything was saved via DIRECT),
+        // skip creating an empty ZIP file.
+        if (postSettings.zipped && zipFileCount === 0 && !postSettings.generateLog && !postSettings.generateLinks) {
+            log.post.info(postId, `::Zipped ON but nothing to zip (all DIRECT downloads) -> skipping ZIP::`, postNumber);
+        }
+        if (needZipBlob) {
             log.separator(postId);
             log.post.info(postId, postSettings.zipped ? `::Preparing zip::` : `::Preparing generated.zip::`, postNumber);
 
@@ -5187,16 +5295,16 @@ if (needZipBlob) {
                                 url,
                                 name: `${title}/#${postNumber}.zip`,
                                 onload: () => {
-                                    try { URL.revokeObjectURL(url); } catch (e) {}
+                                    try { URL.revokeObjectURL(url); } catch (e) { }
                                     blob = null;
                                     resolve();
                                 },
                                 onerror: response => {
-                                    try { URL.revokeObjectURL(url); } catch (e) {}
+                                    try { URL.revokeObjectURL(url); } catch (e) { }
                                     console.log(`Error writing file to disk. There may be more details below.`);
                                     console.log(response);
                                     console.log('Trying to write using FileSaver...');
-                                    try { saveAs(blob, mainZipName); } catch (e) {}
+                                    try { saveAs(blob, mainZipName); } catch (e) { }
                                     console.log('Done!');
                                     resolve();
                                 },
@@ -5214,12 +5322,12 @@ if (needZipBlob) {
                                     url,
                                     name: `${title}/#${postNumber}/generated.zip`,
                                     onload: () => {
-                                        try { URL.revokeObjectURL(url); } catch (e) {}
+                                        try { URL.revokeObjectURL(url); } catch (e) { }
                                         blob = null;
                                         resolve();
                                     },
                                     onerror: response => {
-                                        try { URL.revokeObjectURL(url); } catch (e) {}
+                                        try { URL.revokeObjectURL(url); } catch (e) { }
                                         console.log(`Error writing generated.zip to disk. There may be more details below.`);
                                         console.log(response);
                                         blob = null;
@@ -5250,6 +5358,73 @@ if (needZipBlob) {
 
     window.logs = window.logs.filter(l => l.postId !== postId);
 };
+
+async function getAllWatchedThreads() {
+    let urls = [];
+    let currentPage = 1;
+    let allPagesProcessed = false;
+    const baseUrl = 'https://simpcity.cr/watched/threads';
+
+    console.log('Coletando todos os threads de watched threads...');
+
+    while (!allPagesProcessed) {
+        try {
+            const pageUrl = currentPage === 1 ? baseUrl : `${baseUrl}/page-${currentPage}`;
+            console.log(`Coletando página ${currentPage} de watched: ${pageUrl}`);
+
+            const { source } = await h.http.get(pageUrl);
+            if (!source) {
+                console.warn('Resposta vazia para página de watched', pageUrl);
+                break;
+            }
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(source, 'text/html');
+
+            const anchors = [...doc.querySelectorAll('a[href^="https://simpcity.cr/threads"], a[href^="/threads/"]')];
+
+            const pageUrls = [...new Set(anchors.map(a => {
+                try {
+                    let url = a.href;
+                    
+                    url = url
+                        .replace(/\/unread.*$/, '')
+                        .replace(/\/page-\d+.*$/, '')
+                        .replace(/\/latest.*$/, '')
+                        .replace(/#.*$/, '')
+                        .replace(/\?.*$/, '');
+
+                    
+                    if (!url.endsWith('/')) {
+                        url += '/';
+                    }
+
+                    return url;
+                } catch {
+                    return null;
+                }
+            }).filter(url => url !== null))];
+
+            urls.push(...pageUrls);
+            urls = [...new Set(urls)]; 
+
+            const nextPageLink = doc.querySelector('a[href*="page-' + (currentPage + 1) + '"]');
+            if (!nextPageLink) {
+                allPagesProcessed = true;
+                console.log(`Última página de watched (${currentPage})`);
+            }
+
+            currentPage++;
+            await h.delayedResolve(2000);
+        } catch (e) {
+            console.error('Erro ao coletar página de watched', e);
+            break;
+        }
+    }
+
+    console.log(`Total de threads únicos coletados: ${urls.length}`);
+    return urls;
+}
 
 /**
  * @param post
@@ -5291,7 +5466,7 @@ const addShowDownloadPageBtnLink = post => {
     post.parentNode.querySelector('.message-attribution-main').append(dupTabLI);
 };
 
-// TODO: Extract to ui.js
+
 const addDownloadPageButton = () => {
     const downloadAllButton = document.createElement('a');
     downloadAllButton.setAttribute('id', 'download-page');
@@ -5310,19 +5485,246 @@ const addDownloadPageButton = () => {
     return downloadAllButton;
 };
 
-/**
- * @param postFooter
- */
-const registerPostReaction = postFooter => {
-    const hasReaction = postFooter.querySelector('.has-reaction');
-    if (!hasReaction) {
-        const reactionAnchor = postFooter.querySelector('.reaction--imageHidden');
-        if (reactionAnchor) {
-            reactionAnchor.setAttribute('href', reactionAnchor.getAttribute('href').replace('_id=1', '_id=33'));
-            reactionAnchor.click();
-        }
+const addDownloadWatchedButton = () => {
+    const downloadAllButton = document.createElement('a');
+    downloadAllButton.setAttribute('id', 'download-watched');
+    downloadAllButton.setAttribute('href', '#');
+    downloadAllButton.setAttribute('class', 'button--link button rippleButton');
+
+    const buttonTextSpan = document.createElement('span');
+    buttonTextSpan.setAttribute('class', 'button-text download-watched-btn');
+    buttonTextSpan.innerText = `🡳 Download Watched`;
+
+    downloadAllButton.appendChild(buttonTextSpan);
+
+    const buttonGroup = h.element('.buttonGroup') || document.querySelector('.p-body-header .buttonGroup') || document.querySelector('.block .block-outer .buttonGroup');
+    if (buttonGroup) {
+        buttonGroup.prepend(downloadAllButton);
+    } else {
+        document.body.prepend(downloadAllButton);
     }
+
+    return downloadAllButton;
 };
+
+async function processThreadFromHTML(url) {
+    try {
+        const baseUrl = url.replace(/\/page-\d+/, '').replace(/\/$/, ''); 
+
+        console.log(`Detectando última página da thread: ${baseUrl}`);
+
+        const { source: firstPageSource } = await h.http.get(baseUrl).catch(e => ({ source: null }));
+        if (!firstPageSource) {
+            console.error(`Falha ao carregar página base: ${baseUrl}`);
+            return;
+        }
+
+        const parser = new DOMParser();
+        const firstDoc = parser.parseFromString(firstPageSource, 'text/html');
+
+        let lastPage = 1;
+
+        const pageNavSimple = firstDoc.querySelector('.pageNavSimple-el');
+        if (pageNavSimple) {
+            const text = pageNavSimple.textContent.trim();
+            const match = text.match(/(\d+)\s*(?:of|de|\/)\s*(\d+)/i);
+            if (match && match[2]) lastPage = parseInt(match[2], 10);
+        }
+
+        if (lastPage === 1) {
+            const paginationLinks = firstDoc.querySelectorAll('.pageNav-link:not(.pageNav-prev):not(.pageNav-next)');
+            if (paginationLinks.length > 0) {
+                const lastLink = paginationLinks[paginationLinks.length - 1];
+                const match = lastLink.href.match(/page-(\d+)/);
+                if (match) lastPage = parseInt(match[1], 10);
+            }
+        }
+
+        if (lastPage === 1) {
+            const allLinks = [...firstDoc.querySelectorAll('a[href*="page-"]')];
+            for (const link of allLinks) {
+                const m = link.href.match(/page-(\d+)/);
+                if (m) {
+                    const num = parseInt(m[1], 10);
+                    if (num > lastPage) lastPage = num;
+                }
+            }
+        }
+
+        console.log(`Thread detectada com ${lastPage} ${lastPage === 1 ? 'página' : 'páginas'}`);
+
+     
+        let allPostData = []; 
+
+        let statusContainer = document.getElementById('download-watched-status');
+        if (!statusContainer) {
+            statusContainer = document.createElement('div');
+            statusContainer.id = 'download-watched-status';
+            statusContainer.style.display = 'none';
+            document.body.appendChild(statusContainer);
+        }
+
+        let threadTitle = '';
+        const titleEl = firstDoc.querySelector('.p-title-value');
+        if (titleEl) {
+            const raw = h.stripTags(['a', 'span'], titleEl.innerHTML).replace(/\n/g, '').trim();
+            const emojisPattern = /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}...]/gu;
+            threadTitle = !settings.naming.allowEmojis
+                ? raw.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim()
+                : raw;
+        }
+
+        for (let page = lastPage; page >= 1; page--) {
+            
+            if (skipCurrentThread) {
+                log.write(null, `Skip detectado durante coleta de páginas. Abortando thread: ${baseUrl}`, 'INFO');
+                skipCurrentThread = false; 
+                return; 
+            }
+
+            try {
+                const pageUrl = page === 1 ? baseUrl : `${baseUrl}/page-${page}`;
+                console.log(`Coletando posts da página ${page}: ${pageUrl}`);
+
+                const { source } = await h.http.get(pageUrl).catch(e => ({ source: null }));
+                if (!source) {
+                    console.warn(`Página ${page} vazia ou falhou: ${pageUrl}`);
+                    continue;
+                }
+
+                const doc = parser.parseFromString(source, 'text/html');
+                const postElements = [...doc.querySelectorAll('.message-attribution-opposite')];
+
+                if (!postElements.length) {
+                    console.log(`Nenhum post encontrado na página ${page}`);
+                    continue;
+                }
+
+                console.log(`Encontrados ${postElements.length} posts na página ${page}`);
+
+                for (const postEl of postElements) {
+                    if (skipCurrentThread) {
+                        log.write(null, `Skip detectado durante processamento de posts. Abortando thread: ${baseUrl}`, 'INFO');
+                        skipCurrentThread = false;
+                        return;
+                    }
+
+                    try {
+                        const parsedPost = parsers.thread.parsePost(postEl);
+                        if (!parsedPost) continue;
+
+                        const parsedHosts = parsers.hosts.parseHosts(parsedPost.content);
+                        if (!parsedHosts.length) continue;
+
+                        
+                        let timestamp = parsedPost.date || new Date().toISOString(); 
+                        if (typeof parsedPost.date === 'string') {
+                            timestamp = new Date(parsedPost.date).getTime();
+                        } else if (parsedPost.timestamp) {
+                            timestamp = parsedPost.timestamp;
+                        }
+
+                        allPostData.push({
+                            parsedPost,
+                            parsedHosts,
+                            timestamp,
+                            page,
+                            postId: parsedPost.id || Math.random().toString(36).slice(2) 
+                        });
+                    } catch (err) {
+                        console.error(`Erro ao parsear post na página ${page}:`, err);
+                    }
+                }
+
+                if (page > 1) await h.delayedResolve(1800 + Math.random() * 800); 
+            } catch (err) {
+                console.error(`Erro geral na página ${page}:`, err);
+            }
+        }
+
+        allPostData.sort((a, b) => b.timestamp - a.timestamp);
+
+        console.log(`Total coletado: ${allPostData.length} posts com hosts válidos. Iniciando downloads (mais recente → mais antigo)`);
+
+        let totalProcessed = 0;
+
+        for (const { parsedPost, parsedHosts } of allPostData) {
+            if (skipCurrentThread) {
+                log.write(null, `Skip detectado durante downloads. Abortando thread: ${baseUrl}`, 'INFO');
+                skipCurrentThread = false;
+                break; 
+            }
+
+            try {
+                const getEnabledHostsCB = hosts => hosts.filter(h => h.enabled);
+                const getSettingsCB = () => ({
+                    zipped: false,
+                    flatten: false,
+                    generateLinks: false,
+                    generateLog: false,
+                    skipDuplicates: false,
+                    skipDownload: false,
+                    verifyBunkrLinks: false,
+                    output: [],
+                });
+
+                const statusLabel = document.createElement('div');
+                const filePB = document.createElement('div');
+                const totalPB = document.createElement('div');
+                statusContainer.append(statusLabel, filePB, totalPB);
+
+                await downloadPost(
+                    parsedPost,
+                    parsedHosts,
+                    getEnabledHostsCB,
+                    resolvers,
+                    getSettingsCB,
+                    { status: statusLabel, filePB, totalPB },
+                    {},
+                    threadTitle
+                );
+
+                totalProcessed++;
+            } catch (err) {
+                console.error(`Erro ao baixar post (ignorado):`, err);
+            }
+        }
+
+        console.log(`Thread ${url} concluída. Processados: ${totalProcessed}/${allPostData.length} posts`);
+    } catch (fatalErr) {
+        console.error('Erro fatal na thread', url, fatalErr);
+    }
+}
+// ---- Download All Pages helper ----
+const addDownloadAllPagesButton = () => {
+    const downloadAllPagesButton = document.createElement('a');
+    downloadAllPagesButton.setAttribute('id', 'download-all-pages');
+    downloadAllPagesButton.setAttribute('href', '#');
+    downloadAllPagesButton.setAttribute('class', 'button--link button rippleButton');
+    downloadAllPagesButton.setAttribute('title', 'Downloads ALL pages of this thread (may take a long time)');
+
+    const buttonTextSpan = document.createElement('span');
+    buttonTextSpan.setAttribute('class', 'button-text download-all-pages-btn');
+    buttonTextSpan.innerText = `🡳 Download All Pages`;
+
+    downloadAllPagesButton.appendChild(buttonTextSpan);
+
+    const buttonGroup = h.element('.buttonGroup');
+    if (buttonGroup) {
+        buttonGroup.appendChild(downloadAllPagesButton);
+    } else {
+        document.body.prepend(downloadAllPagesButton);
+    }
+
+    return downloadAllPagesButton;
+};
+
+async function downloadAllPagesOfCurrentThread() {
+    const threadUrl = location.href.replace(/\/page-\d+/, '').split('#')[0];
+    console.log(`Iniciando download de todas as páginas da thread: ${threadUrl}`);
+    await processThreadFromHTML(threadUrl); 
+    console.log('Thread finalizada');
+}
 
 
 const CYBERDROP_WARMUP_DEFAULT_MS = 2500;
@@ -5347,7 +5749,7 @@ async function cyberdropWarmupOnce(key, warmUrl, ms = CYBERDROP_WARMUP_DEFAULT_M
     const _k0 = String(key || '').trim();
     if (_k0.indexOf('://') !== -1) {
         const m = _k0.match(/https?:\/\/[^\s]+/i);
-        if (m) { try { key = `cyberdrop:${new URL(m[0]).origin}`; } catch {} }
+        if (m) { try { key = `cyberdrop:${new URL(m[0]).origin}`; } catch { } }
     }
 
     const k = String(key || '').trim();
@@ -5355,7 +5757,7 @@ async function cyberdropWarmupOnce(key, warmUrl, ms = CYBERDROP_WARMUP_DEFAULT_M
     if (!k || !u) return;
 
     if (cyberdropWarmupAttempted.has(k)) {
-        try { await cyberdropWarmupAttempted.get(k); } catch (e) {}
+        try { await cyberdropWarmupAttempted.get(k); } catch (e) { }
         return;
     }
 
@@ -5364,7 +5766,7 @@ async function cyberdropWarmupOnce(key, warmUrl, ms = CYBERDROP_WARMUP_DEFAULT_M
             try {
                 const tab = GM_openInTab(u, { active: false, insert: true, setParent: true });
                 setTimeout(() => {
-                    try { if (tab && typeof tab.close === 'function') tab.close(); } catch (e) {}
+                    try { if (tab && typeof tab.close === 'function') tab.close(); } catch (e) { }
                     resolve();
                 }, Math.max(250, ms));
             } catch (e) {
@@ -5408,7 +5810,7 @@ async function cyberdrop_helper(apiUrl) {
                 const j = JSON.parse(r.responseText);
                 const direct = j && (j.url || (j.data && j.data.url) || (j.file && j.file.url));
                 if (direct && typeof direct === 'string') return direct;
-            } catch (e) {}
+            } catch (e) { }
         }
         await new Promise(res => setTimeout(res, 800));
     }
@@ -5418,6 +5820,8 @@ async function cyberdrop_helper(apiUrl) {
 
 const parsedPosts = [];
 const selectedPosts = [];
+let isDownloadingAll = false;
+let skipCurrentThread = false;
 
 (function () {
     window.addEventListener('beforeunload', e => {
@@ -5445,6 +5849,77 @@ const selectedPosts = [];
 
         init.injectCustomStyles();
 
+        // If we are on the watched threads page, add a "Download Watched" button.
+        if (document.location.pathname.startsWith('/watched/threads')) {
+            const btnWatch = addDownloadWatchedButton();
+
+            const btnSkip = document.createElement('button');
+            btnSkip.textContent = 'Skip Current Thread';
+            btnSkip.disabled = true; 
+            btnSkip.style.marginLeft = '10px';
+            btnSkip.style.padding = '8px 12px';
+            btnSkip.style.color = 'white';
+            btnSkip.style.border = 'none';
+            btnSkip.style.borderRadius = '4px';
+            btnSkip.style.cursor = 'pointer';
+            btnSkip.style.fontWeight = 'bold';
+
+            btnWatch.parentNode.insertBefore(btnSkip, btnWatch.nextSibling);
+
+            btnSkip.addEventListener('click', () => {
+                if (isDownloadingAll) {
+                    skipCurrentThread = true;
+                    log.write(null, 'Skip requested: pulando o thread atual', 'INFO');
+                    btnSkip.textContent = 'Skipping...'; 
+                    setTimeout(() => {
+                        if (isDownloadingAll) btnSkip.textContent = 'Skip Current Thread';
+                    }, 2000); 
+                } else {
+                    log.write(null, 'Nenhum download em massa rodando para skip', 'WARN');
+                }
+            });
+
+            
+            btnWatch.addEventListener('click', async e => {
+                e.preventDefault();
+
+                if (isDownloadingAll) {
+                    log.write(null, 'Download em massa já em andamento', 'WARN');
+                    return;
+                }
+
+                isDownloadingAll = true;
+                skipCurrentThread = false;
+                btnSkip.disabled = false; 
+                btnSkip.textContent = 'Skip Current Thread';
+
+                try {
+                    const urls = await getAllWatchedThreads(); 
+
+                    log.write(null, `Iniciando download de ${urls.length} threads watched`, 'INFO');
+
+                    for (const url of urls) {
+                        if (skipCurrentThread) {
+                            log.write(null, `Pulando thread atual: ${url}`, 'INFO');
+                            skipCurrentThread = false; 
+                            continue; 
+                        }
+
+                        log.write(null, `Processando thread: ${url}`, 'INFO');
+                        await processThreadFromHTML(url); 
+                    }
+
+                    log.write(null, 'Download de todos watched threads concluído', 'INFO');
+                } catch (err) {
+                    log.write(null, `Erro durante download em massa: ${err.message}`, 'ERROR');
+                } finally {
+                    isDownloadingAll = false;
+                    btnSkip.disabled = true; 
+                    btnSkip.textContent = 'Skip Current Thread';
+                }
+            });
+        }
+
         h.elements('.message-attribution-opposite').forEach(post => {
             const settings = {
                 zipped: true,
@@ -5453,7 +5928,7 @@ const selectedPosts = [];
                 generateLog: false,
                 skipDuplicates: false,
                 skipDownload: false,
-                verifyBunkrLinks: false,                output: [],
+                verifyBunkrLinks: false, output: [],
             };
 
             const parsedPost = parsers.thread.parsePost(post);
@@ -5517,9 +5992,7 @@ const selectedPosts = [];
 
             const postDownloadCallbacks = {
                 onComplete: (total, completed) => {
-                    if (total > 0 && completed > 0) {
-                        registerPostReaction(parsedPost.footer);
-                    }
+
                 },
             };
 
@@ -5532,7 +6005,6 @@ const selectedPosts = [];
                 resolvers,
                 getSettingsCB,
                 statusUI,
-                postDownloadCallbacks,
             });
 
             btnDownloadPost.addEventListener('click', e => {
@@ -5544,22 +6016,33 @@ const selectedPosts = [];
         if (parsedPosts.filter(p => p.parsedHosts.length).length > 0) {
             const btnDownloadPage = addDownloadPageButton();
 
+            // Add Download All Pages button for regular thread pages
+            if (document.location.pathname.startsWith('/threads/')) {
+                const btnDownloadAllPages = addDownloadAllPagesButton();
+                btnDownloadAllPages.addEventListener('click', async e => {
+                    e.preventDefault();
+                    if (confirm('This will download ALL pages of this thread. It may take a very long time and download thousands of files. Continue?')) {
+                        await downloadAllPagesOfCurrentThread();
+                    }
+                });
+            }
+
             btnDownloadPage.addEventListener('click', e => {
                 e.preventDefault();
 
                 selectedPosts
                     .filter(s => s.enabled)
                     .forEach(s => {
-                    downloadPost(
-                        s.post.parsedPost,
-                        s.post.parsedHosts,
-                        s.post.enabledHostsCB,
-                        s.post.resolvers,
-                        s.post.getSettingsCB,
-                        s.post.statusUI,
-                        s.post.postDownloadCallbacks,
-                    );
-                });
+                        downloadPost(
+                            s.post.parsedPost,
+                            s.post.parsedHosts,
+                            s.post.enabledHostsCB,
+                            s.post.resolvers,
+                            s.post.getSettingsCB,
+                            s.post.statusUI,
+                            s.post.postDownloadCallbacks,
+                        );
+                    });
             });
 
             // TODO: Extract to ui.js
@@ -5570,19 +6053,19 @@ const selectedPosts = [];
             parsedPosts
                 .filter(p => p.parsedHosts.length)
                 .forEach(post => {
-                const { postId, postNumber, textContent } = post.parsedPost;
+                    const { postId, postNumber, textContent } = post.parsedPost;
 
-                selectedPosts.push({ post, enabled: false });
+                    selectedPosts.push({ post, enabled: false });
 
-                const threadTitle = parsers.thread.parseTitle();
+                    const threadTitle = parsers.thread.parseTitle();
 
-                let defaultPostContent = textContent.trim().replace('​', '');
+                    let defaultPostContent = textContent.trim().replace('​', '');
 
-                const ellipsedText = h.limit(defaultPostContent === '' ? threadTitle : defaultPostContent, 20);
+                    const ellipsedText = h.limit(defaultPostContent === '' ? threadTitle : defaultPostContent, 20);
 
-                const summary = `<a id="post-content-${postId}" href="#post-${postId}" style="color: #3DB7C7"> ${ellipsedText} </a>`;
-                html += ui.forms.createCheckbox(`config-download-post-${postId}`, `Post #${postNumber} ${summary}`, false);
-            });
+                    const summary = `<a id="post-content-${postId}" href="#post-${postId}" style="color: dodgerblue"> ${ellipsedText} </a>`;
+                    html += ui.forms.createCheckbox(`config-download-post-${postId}`, `Post #${postNumber} ${summary}`, false);
+                });
 
             html = `${ui.forms.createRow(ui.forms.createLabel('Post Selection'))} ${html}`;
             ui.tooltip(btnDownloadPage, ui.forms.config.page.createForm(color, html), {
@@ -5592,43 +6075,43 @@ const selectedPosts = [];
                     parsedPosts
                         .filter(p => p.parsedHosts.length)
                         .forEach(post => {
-                        const { postId, contentContainer } = post.parsedPost;
-                        ui.tooltip(
-                            `#post-content-${postId}`,
-                            `<div style="overflow-y: auto; background: #242323; padding: 16px; width: 500px; max-height: 500px">
+                            const { postId, contentContainer } = post.parsedPost;
+                            ui.tooltip(
+                                `#post-content-${postId}`,
+                                `<div style="overflow-y: auto; background: #242323; padding: 16px; width: 500px; max-height: 500px">
                           ${contentContainer.innerHTML}
                          </div>`,
-                            { placement: 'right', offset: [10, 15] },
-                        );
+                                { placement: 'right', offset: [10, 15] },
+                            );
 
-                        document.querySelector(`#config-download-post-${postId}`).addEventListener('change', e => {
-                            const selectedPost = selectedPosts.find(s => s.post.parsedPost.postId === postId);
-                            selectedPost.enabled = e.target.checked;
+                            document.querySelector(`#config-download-post-${postId}`).addEventListener('change', e => {
+                                const selectedPost = selectedPosts.find(s => s.post.parsedPost.postId === postId);
+                                selectedPost.enabled = e.target.checked;
 
-                            const checkAllCB = h.element('#config-toggle-all-posts');
-                            checkAllCB.checked = selectedPosts.filter(s => s.enabled).length === parsedPosts.length;
+                                const checkAllCB = h.element('#config-toggle-all-posts');
+                                checkAllCB.checked = selectedPosts.filter(s => s.enabled).length === parsedPosts.length;
+                            });
+
+                            h.element('#config-toggle-all-posts').addEventListener('change', async e => {
+                                e.preventDefault();
+
+                                const checked = e.target.checked;
+
+                                const postCheckboxes = parsedPosts
+                                    .filter(p => p.parsedHosts.length)
+                                    .map(p => p.parsedPost)
+                                    .flatMap(p => h.element(`#config-download-post-${p.postId}`));
+
+                                const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
+                                const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
+
+                                if (checked) {
+                                    unCheckedPostCheckboxes.forEach(c => c.click());
+                                } else {
+                                    checkedPostCheckboxes.forEach(c => c.click());
+                                }
+                            });
                         });
-
-                        h.element('#config-toggle-all-posts').addEventListener('change', async e => {
-                            e.preventDefault();
-
-                            const checked = e.target.checked;
-
-                            const postCheckboxes = parsedPosts
-                            .filter(p => p.parsedHosts.length)
-                            .map(p => p.parsedPost)
-                            .flatMap(p => h.element(`#config-download-post-${p.postId}`));
-
-                            const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
-                            const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
-
-                            if (checked) {
-                                unCheckedPostCheckboxes.forEach(c => c.click());
-                            } else {
-                                checkedPostCheckboxes.forEach(c => c.click());
-                            }
-                        });
-                    });
                 },
             });
         }
