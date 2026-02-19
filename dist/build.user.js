@@ -3907,9 +3907,13 @@ const setProcessing = (isProcessing, postId) => {
 const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}, overrideThreadTitle = null) => {
     const { postId, postNumber } = parsedPost;
 
+    const DOWNLOAD_TIMEOUT_MS = 1800000; // 30 minutes timeout
+    const downloadStartTime = Date.now();
+
     const postSettings = getSettingsCB();
 
     const enabledHosts = enabledHostsCB(parsedHosts);
+    let downloadTimedOut = false;
 
     // TODO: Fix this filth.
     window.logs = window.logs.filter(l => l.postId !== postId);
@@ -4198,6 +4202,25 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
     const isFF = window.isFF;
 
+    const checkTimeout = () => {
+        if (Date.now() - downloadStartTime > DOWNLOAD_TIMEOUT_MS) {
+            if (!downloadTimedOut) {
+                downloadTimedOut = true;
+                log.post.error(postId, `::Download timeout reached (${DOWNLOAD_TIMEOUT_MS / 60000} minutes)::`, postNumber);
+            }
+            return true;
+        }
+        return false;
+    };
+
+    // Check timeout before starting downloads
+    if (checkTimeout()) {
+        log.post.error(postId, `::Download timed out before starting::`, postNumber);
+        setProcessing(false, postId);
+        callbacks && callbacks.onComplete && callbacks.onComplete(totalDownloadable, completed);
+        return;
+    }
+
     if (!postSettings.skipDownload) {
         const resources = resolved.filter(r => r.url);
         totalDownloadable = resources.length;
@@ -4286,6 +4309,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         method: 'GET',
                         url: getUrl,
                         headers: headers || {},
+                        timeout: DOWNLOAD_TIMEOUT_MS,
                         onload: r => resolve({ ok: true, status: r.status, text: r.responseText || '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '' }),
@@ -4381,6 +4405,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     GM_xmlhttpRequest({
                         method: 'HEAD',
                         url: headUrl,
+                        timeout: DOWNLOAD_TIMEOUT_MS,
                         onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '' }),
                         onerror: () => resolve({ ok: false, status: 0, headers: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, headers: '' }),
@@ -4395,6 +4420,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     GM_xmlhttpRequest({
                         method: 'GET',
                         url: getUrl,
+                        timeout: DOWNLOAD_TIMEOUT_MS,
                         onload: r => resolve({ ok: true, status: r.status, text: r.responseText || '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '' }),
@@ -4717,6 +4743,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     url,
                     headers: (/turbocdn\.st/i.test(String(url || '')) ? { Referer: 'https://turbo.cr/' } : { Referer: reflink }),
                     responseType: 'blob',
+                    timeout: DOWNLOAD_TIMEOUT_MS,
                     onreadystatechange: response => {
                         if (response.readyState === 2) {
                             let matches = h.re.matchAll(/(?<=attachment;filename=").*?(?=")/gis, response.responseHeaders);
