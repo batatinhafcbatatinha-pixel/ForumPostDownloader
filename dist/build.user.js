@@ -5429,6 +5429,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
     const postSettings = getSettingsCB();
 
+    const DOWNLOAD_TIMEOUT_MS = 1800000; // 30 minutes timeout
+    const downloadStartTime = Date.now();
+    let downloadTimedOut = false;
+
     const enabledHosts = enabledHostsCB(parsedHosts);
 
     // TODO: Fix this filth.
