@@ -5424,7 +5424,7 @@ const setProcessing = (isProcessing, postId) => {
     }
 };
 
-const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}) => {
+const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}, overrideThreadTitle = null) => {
     const { postId, postNumber } = parsedPost;
 
     const postSettings = getSettingsCB();
@@ -5755,7 +5755,7 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
     log.post.info(postId, `::Found ${totalDownloadable} resource(s)::`, postNumber);
     log.separator(postId);
 
-    const threadTitle = parsers.thread.parseTitle();
+    const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
 
     let customFilename = postSettings.output.find(o => o.postId === postId)?.value;
 
@@ -7468,19 +7468,51 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                         const saveAsName = (isFF && !zippedForThis) ? saveAsFF : saveAsPath;
 
                         if (!zippedForThis) {
-                            const blobUrl = URL.createObjectURL(fileBlob);
-                            GM_download({
-                                url: blobUrl,
-                                name: saveAsName,
-                                onload: () => {
-                                    try { URL.revokeObjectURL(blobUrl); } catch (e) {}
-                                },
-                                onerror: response => {
-                                    console.log(`Error writing file ${fn} to disk. There may be more details below.`);
-                                    console.log(response);
-                                    try { URL.revokeObjectURL(blobUrl); } catch (e) {}
-                                },
-                            });
+                            if (isFF) {
+                                // Firefox: saveAs works reliably with blobs
+                                try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
+                                    console.log('saveAs (FF) failed:', e);
+                                }
+                            } else {
+                                // Chrome/TM: try GM_download first.
+                                // If it fails (not_whitelisted or other error), fall back to saveAs.
+                                let gmDlResolved = false;
+                                const gmDlResolve = (success) => {
+                                    if (gmDlResolved) return;
+                                    gmDlResolved = true;
+                                    if (completed < totalDownloadable) completed++;
+                                    completedBatchedDownloads++;
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ${ellipsedUrl}`);
+                                    h.ui.setElProps(statusLabel, { color: success ? '#2d9053' : '#b23b3b' });
+                                    h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
+                                };
+                                const safetyTimer = setTimeout(() => {
+                                    log.post.error(postId, `::Download timed out (5min safety)::: ${url}`, postNumber);
+                                    gmDlResolve(false);
+                                }, 5 * 60 * 1000);
+                                const blobUrl = URL.createObjectURL(fileBlob);
+                                GM_download({
+                                    url: blobUrl,
+                                    name: saveAsName,
+                                    onload: () => {
+                                        clearTimeout(safetyTimer);
+                                        try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                        gmDlResolve(true);
+                                    },
+                                    onerror: response => {
+                                        clearTimeout(safetyTimer);
+                                        // not_whitelisted or other GM_download error - fall back to saveAs
+                                        try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                        console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
+                                        console.log(response);
+                                        // saveAs can't create subfolders, so use flat name with thread title
+                                        try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
+                                            console.log('saveAs fallback also failed:', e);
+                                        }
+                                        gmDlResolve(false);
+                                    },
+                                });
+                            }
                         }
 
                                                 if (zippedForThis) {
@@ -8484,7 +8516,7 @@ let skipCurrentThread = false;
 
                 selectedPosts.push({ post, enabled: false });
 
-                const threadTitle = parsers.thread.parseTitle();
+                const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
 
                 let defaultPostContent = textContent.trim().replace('â€‹', '');
 
