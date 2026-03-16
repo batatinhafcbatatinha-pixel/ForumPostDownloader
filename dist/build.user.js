@@ -4,9 +4,8 @@
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
-// @version 3.17
-// @updateURL https://github.com/SkyCloudDev/ForumPostDownloader/raw/main/dist/build.user.js
-// @downloadURL https://github.com/SkyCloudDev/ForumPostDownloader/raw/main/dist/build.user.js
+// @version 3.17-custom.1
+// (custom build) updateURL/downloadURL removed to avoid overwriting custom changes
 // @icon https://simp4.host.church/simpcityIcon192.png
 // @license WTFPL; http://www.wtfpl.net/txt/copying/
 // @match https://simpcity.cr/threads/*
@@ -15,6 +14,9 @@
 // @match https://simpcity.hk/threads/*
 // @match https://simpcity.rs/threads/*
 // @match https://simpcity.ax/threads/*
+// @match https://simpcity.cr/watched/threads*
+// @match https://forums.socialmediagirls.com/threads/*
+// @match https://forums.socialmediagirls.com/watched/threads*
 // @require https://unpkg.com/@popperjs/core@2
 // @require https://unpkg.com/tippy.js@6
 // @require https://unpkg.com/file-saver@2.0.4/dist/FileSaver.min.js
@@ -22,12 +24,16 @@
 // @require https://raw.githubusercontent.com/geraintluff/sha256/gh-pages/sha256.min.js
 // @connect self
 // @connect simpcity.su
+// @connect simpcity.cr
 // @connect coomer.st
+// @connect pixeldrain.com
+// @connect *.pixeldrain.com
 // @connect box.com
 // @connect boxcloud.com
 // @connect kemono.cr
 // @connect github.com
 // @connect scdn.st
+// @connect socialmediagirls.com
 // @connect cache8.st
 // @connect bunkr.ac
 // @connect bunkr.ax
@@ -111,6 +117,10 @@
 // @connect give.xxx
 // @connect githubusercontent.com
 // @connect filester.me
+// @connect pd1.pixeldrain.com
+// @connect storage.pixeldrain.com
+// @connect *.pixeldrainusercontent.com
+// @connect *
 // @run-at document-start
 // @grant GM_xmlhttpRequest
 // @grant GM_download
@@ -120,6 +130,7 @@
 // @grant GM_openInTab
 
 // ==/UserScript==
+
 // --- tab handle helper (Tampermonkey can return either a Tab object or a Promise<Tab>) ---
 function xfpdCloseTabHandle(tabOrPromise) {
     try {
@@ -1002,9 +1013,23 @@ const parsers = {
      * @param post
      * @returns {{pageNumber: string, post, spoilers: *, footer: HTMLElement, contentContainer: Element, textContent: (*|string|string), postId: string, postNumber: string, content: (*|string|string|string)}}
      */
+
         parsePost: post => {
-            const messageContent = post.parentNode.parentNode.querySelector('.message-content > .message-userContent');
+                        // Garante que só processa posts reais
+                        if (!post.parentNode || !post.parentNode.parentNode) return null;
+                        const parent = post.parentNode.parentNode;
+                        if (!parent.querySelector('.message-content')) return null;
+            // Seletor mais flexível para encontrar o conteúdo do post
+            let messageContent = post.parentNode.parentNode.querySelector('.message-content .message-userContent');
+            if (!messageContent) {
+                // fallback: tenta pegar diretamente .message-userContent
+                messageContent = post.parentNode.parentNode.querySelector('.message-userContent');
+            }
             const footer = post.parentNode.parentNode.querySelector('footer');
+            if (!messageContent) {
+                console.warn('parsePost: .message-userContent não encontrado', post);
+                return null; // Ignora posts sem conteúdo válido
+            }
             const messageContentClone = messageContent.cloneNode(true);
 
             const postIdAnchor = post.querySelector('li:last-of-type > a');
@@ -1451,7 +1476,7 @@ const ui = {
         createPostDownloadButton: () => {
             const downloadPostBtn = document.createElement('a');
             downloadPostBtn.setAttribute('href', '#');
-            downloadPostBtn.innerHTML = '🡳 Download';
+            downloadPostBtn.innerHTML = 'Download';
 
             return downloadPostBtn;
         },
@@ -1858,7 +1883,7 @@ h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => 
                                         .filter(host => host.enabled && host.resources.length)
                                         .reduce((acc, host) => acc + host.resources.length, 0);
 
-                                        btnDownloadPost.innerHTML = `🡳 Download (${totalDownloadableResources}/${totalResources})`;
+                                        btnDownloadPost.innerHTML = `Download (${totalDownloadableResources}/${totalResources})`;
 
                                         if (parsedHosts.length > 1) {
                                             const toggleAllHostsCheckbox = h.element(`#settings-toggle-all-hosts-${postId}`);
@@ -1946,7 +1971,7 @@ let processing = [];
  *
  */
 const hosts = [
-    ['Simpcity:Attachments', [/(\/attachments\/|\/data\/video\/)/]],
+    ['Forum:Attachments', [/(\/attachments\/|\/data\/video\/)/]],
     ['Coomer:Profiles', [/coomer.st\/[~an@._-]+\/user/]],
     ['Coomer:image', [/(\w+\.)?coomer.st\/(data|thumbnail)/]],
     ['JPGX:image', [/(simp\d+\.)?(selti-delivery\.ru|jpg\d?\.(church|fish|fishing|pet|su|cr))\/(?!(img\/|a\/|album\/))/, /jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)[~an@-_.]+<no_qs>/]],
@@ -2002,7 +2027,7 @@ const hosts = [
 /* -------------------------------------------------------------------------
  * Turbo sign hardening:
  * - timeout 5000ms
- * - retry 2x with jitter delay 700–1400ms
+ * - retry 2x with jitter delay 700â€“1400ms
  * This avoids rare ~50s "waiting" stalls on https://turbo.cr/api/sign
  * ------------------------------------------------------------------------- */
 const XFPD_TURBO_SIGN_TIMEOUT_MS = 5000;
@@ -2815,9 +2840,29 @@ if (page === 1) {
     [
         [/(?:focus\.)?(?:pixeldrain\.com|pixeldrain\.net|pixeldra\.in)\/[ul]/],
         url => {
-            let resolved = url.replace('/u/', '/api/file/').replace('/l/', '/api/list/');
-            resolved = h.contains('/api/list', resolved) ? `${resolved}/zip` : resolved;
-            resolved = h.contains('/api/file', resolved) ? `${resolved}?download` : resolved;
+            // Pixeldrain links may include fragments like "#item=4" (common on /l/ pages).
+            // Fragments are NOT sent to the server; if we append "/zip" after the fragment
+            // we end up requesting "/api/list/<id>" (JSON) instead of "/api/list/<id>/zip" (ZIP).
+            let cleaned = String(url || '');
+            try {
+                // Remove fragment first (everything after '#')
+                cleaned = cleaned.split('#')[0];
+            } catch (e) {}
+
+            let resolved = cleaned.replace('/u/', '/api/file/').replace('/l/', '/api/list/');
+
+            // Ensure list ZIP endpoint is correct even if the original URL had extra path segments.
+            if (h.contains('/api/list', resolved)) {
+                // Drop any trailing slashes to avoid "//zip"
+                resolved = resolved.replace(/\/+$/g, '');
+                resolved = `${resolved}/zip`;
+            }
+
+            if (h.contains('/api/file', resolved)) {
+                // Preserve existing querystring (if any) and force download=1
+                resolved = resolved.includes('?') ? `${resolved}&download` : `${resolved}?download`;
+            }
+
             return resolved;
         },
     ],
@@ -4351,14 +4396,15 @@ if (page === 1) {
             // If it's already absolute, keep it (don't rewrite hosts).
             if (/^https?:\/\//i.test(url)) return url;
 
-            // Otherwise it's a path; prefix with Simpcity origin.
+            // Otherwise it's a path; prefix with o domínio correto.
             if (!url.startsWith('/')) url = '/' + url;
 
+            const isSMG = window.location.hostname.includes('socialmediagirls');
             if (url.startsWith('/attachments/') || url.startsWith('/data/video/')) {
-                return `https://simpcity.su${url}`;
+                return isSMG ? `https://forums.socialmediagirls.com${url}` : `https://simpcity.su${url}`;
             }
 
-            return `https://simpcity.su${url}`;
+            return (isSMG ? 'https://forums.socialmediagirls.com' : 'https://simpcity.su') + url;
         },
     ],
     [[/(thumbs|images)(\d+)?.imgbox.com\//, /:!imgbox.com\/g\//], url => url.replace(/_t\./gi, '_o.').replace(/thumbs/i, 'images')],
@@ -5422,10 +5468,14 @@ const setProcessing = (isProcessing, postId) => {
     }
 };
 
-const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}) => {
+const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}, overrideThreadTitle = null) => {
     const { postId, postNumber } = parsedPost;
 
     const postSettings = getSettingsCB();
+
+    const DOWNLOAD_TIMEOUT_MS = 300000; // 5 minutes timeout
+    const downloadStartTime = Date.now();
+    let downloadTimedOut = false;
 
     const enabledHosts = enabledHostsCB(parsedHosts);
 
@@ -5635,7 +5685,7 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
     const totalResources = enabledHosts.reduce((acc, h) => h.resources.length + acc, 0);
 
     h.ui.setElProps(statusLabel, { color: '#47ba24', fontWeight: 'bold' });
-    h.ui.setText(statusLabel, `Resolved: ${resolved.length} / ${totalDownloadable} 🢒 ${totalResources} Total Links`);
+    h.ui.setText(statusLabel, `Resolved: ${resolved.length} / ${totalDownloadable} ðŸ¢’ ${totalResources} Total Links`);
 
     const filenames = [];
     const mimeTypes = [];
@@ -5749,7 +5799,7 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
     log.post.info(postId, `::Found ${totalDownloadable} resource(s)::`, postNumber);
     log.separator(postId);
 
-    const threadTitle = parsers.thread.parseTitle();
+    const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
 
     let customFilename = postSettings.output.find(o => o.postId === postId)?.value;
 
@@ -6451,6 +6501,7 @@ if (tmp.length) {
 
                         let basename = '';
 
+
                         if (isPixeldrain) {
                             basename = String(meta.filename || '') || parseDispositionFilename(meta.headers || '') || '';
                         } else if (isGoFile) {
@@ -6599,6 +6650,120 @@ if (tmp.length) {
                         let directUrl = String(url);
                         let filesterDirectPreflightDone = false;
 
+                        const isPixeldrainListZip = /pixeldrain\.com\/api\/list\/.+\/zip/i.test(url);
+                        if (isPixeldrainListZip) {
+                            const extractHeader = (raw, name) => {
+                                try {
+                                    const re = new RegExp(`^${String(name).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*:\\s*(.+)$`, 'im');
+                                    const m = re.exec(String(raw || ''));
+                                    return m && m[1] ? String(m[1]).trim() : '';
+                                } catch (e) {
+                                    return '';
+                                }
+                            };
+
+                            log.post.info(postId, `::Pixeldrain list ZIP -> fetch blob (debug)::: ${url}`, postNumber);
+
+                            GM_xmlhttpRequest({
+                                method: 'GET',
+                                url,
+                                responseType: 'blob',
+                                timeout: 60000,
+                                onload: r => {
+                                    try {
+                                        const ct = extractHeader(r.responseHeaders || '', 'content-type');
+                                        const cl = extractHeader(r.responseHeaders || '', 'content-length');
+                                        const blob = r.response;
+                                        const blobSize = blob && blob.size ? blob.size : 0;
+
+                                        console.log('[Pixeldrain list ZIP debug]', {
+                                            url,
+                                            status: r.status,
+                                            finalUrl: r.finalUrl || r.responseURL || '',
+                                            contentType: ct,
+                                            contentLength: cl,
+                                            blobSize,
+                                            headers: r.responseHeaders || '',
+                                        });
+
+                                        if (!(r.status >= 200 && r.status < 300) || !blob || !blobSize) {
+                                            log.post.error(postId, `::Pixeldrain list ZIP blob fetch failed (status=${r.status}, ct=${ct}, size=${blobSize})::: ${url}`, postNumber);
+                                            completed++;
+                                            completedBatchedDownloads++;
+                                            return;
+                                        }
+
+                                        // Prefer saveAs for blob: URLs (GM_download often fails with not_whitelisted for blob:)
+                                        try {
+                                            if (isFF) {
+                                                saveAs(blob, saveAsName);
+                                            } else {
+                                                // Chrome/TM: try saveAs first for reliability, then fallback to GM_download(blob:)
+                                                saveAs(blob, saveAsName);
+                                            }
+
+                                            completed++;
+                                            completedBatchedDownloads++;
+                                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                            h.ui.setElProps(statusLabel, { color: '#2d9053' });
+                                            h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
+                                            return;
+                                        } catch (e) {
+                                            console.log('[Pixeldrain list ZIP debug] saveAs failed, trying GM_download(blob:)', e);
+                                        }
+
+                                        const blobUrl = URL.createObjectURL(blob);
+                                        GM_download({
+                                            url: blobUrl,
+                                            name: saveAsName,
+                                            onload: () => {
+                                                try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                                completed++;
+                                                completedBatchedDownloads++;
+                                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                                h.ui.setElProps(statusLabel, { color: '#2d9053' });
+                                                h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
+                                            },
+                                            onerror: err => {
+                                                try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                                log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) failed (${(err && err.error) || 'unknown'})::: ${url}`, postNumber);
+                                                console.log('[Pixeldrain list ZIP debug] GM_download(blob:) error', err);
+                                                completed++;
+                                                completedBatchedDownloads++;
+                                            },
+                                            ontimeout: err => {
+                                                try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                                log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) timed out::: ${url}`, postNumber);
+                                                console.log('[Pixeldrain list ZIP debug] GM_download(blob:) timeout', err);
+                                                completed++;
+                                                completedBatchedDownloads++;
+                                            },
+                                        });
+                                    } catch (e) {
+                                        log.post.error(postId, `::Pixeldrain list ZIP debug handler threw::: ${url}`, postNumber);
+                                        console.log('[Pixeldrain list ZIP debug] handler exception', e);
+                                        completed++;
+                                        completedBatchedDownloads++;
+                                    }
+                                },
+                                onerror: err => {
+                                    log.post.error(postId, `::Pixeldrain list ZIP blob fetch network error::: ${url}`, postNumber);
+                                    console.log('[Pixeldrain list ZIP debug] GM_xmlhttpRequest onerror', err);
+                                    completed++;
+                                    completedBatchedDownloads++;
+                                },
+                                ontimeout: err => {
+                                    log.post.error(postId, `::Pixeldrain list ZIP blob fetch timed out::: ${url}`, postNumber);
+                                    console.log('[Pixeldrain list ZIP debug] GM_xmlhttpRequest ontimeout', err);
+                                    completed++;
+                                    completedBatchedDownloads++;
+                                },
+                            });
+
+                            // Important: avoid falling through to GM_download(direct URL) (it often yields "unknown" on this endpoint).
+                            return;
+                        }
+
                         // Filester DIRECT: retry a few times on transient HTTP errors (429/400/etc) and rotate cache hosts (cache6 <-> cache1 ...)
                         // before starting GM_download. Keeps pauses short (<=~2s).
                         if (isFilester) {
@@ -6652,9 +6817,10 @@ if (tmp.length) {
                                         filesterDirectPreflightDone = true;
 
                                         const st0 = Number(pre && pre.status || 0) || 0;
+                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         const finalUrl = pre && (pre.finalUrl || pre.responseURL) ? String(pre.finalUrl || pre.responseURL) : '';
                                         const ok = st0 && st0 < 400;
-
+                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         if (ok) {
                                             directUrl = (finalUrl && /^https?:\/\//i.test(finalUrl)) ? finalUrl : String(cand);
 
@@ -6685,9 +6851,9 @@ const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn
                                 const totalMB = totalBytes ? Number(totalBytes / 1024 / 1024).toFixed(2) : '??';
                                 if (!totalBytes) {
                                     h.ui.setElProps(filePB, { width: '0%' });
-                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 DIRECT 🢒 ${loadedMB} MB 🢒 ${ellipsedUrl}`);
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ DIRECT ðŸ¢’ ${loadedMB} MB ðŸ¢’ ${ellipsedUrl}`);
                                 } else {
-                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 DIRECT 🢒 ${loadedMB} MB / ${totalMB} MB  🢒 ${ellipsedUrl}`);
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ DIRECT ðŸ¢’ ${loadedMB} MB / ${totalMB} MB  ðŸ¢’ ${ellipsedUrl}`);
                                     h.ui.setElProps(filePB, {
                                         width: `${(e.loaded / totalBytes) * 100}%`,
                                     });
@@ -6697,7 +6863,7 @@ const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn
                                 completed++;
                                 completedBatchedDownloads++;
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#2d9053' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -6707,20 +6873,30 @@ const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn
                                 completed++;
                                 completedBatchedDownloads++;
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
                                 });
 
                                 log.post.error(postId, `::DIRECT download failed::: ${url}`, postNumber);
-                                console.log(err);
+                                console.log('[DIRECT download error]', {
+                                    originalUrl: origUrl,
+                                    directUrl: dlOpts && dlOpts.url,
+                                    err,
+                                    tmError: (err && err.error) || 'unknown',
+                                    details: (err && (err.details || err.message)) || '',
+                                });
                             },
                             ontimeout: err => {
                                 completed++;
                                 completedBatchedDownloads++;
                                 log.post.error(postId, `::DIRECT download timed out::: ${url}`, postNumber);
-                                console.log(err);
+                                console.log('[DIRECT download timeout]', {
+                                    originalUrl: origUrl,
+                                    directUrl: dlOpts && dlOpts.url,
+                                    err,
+                                });
                             },
                         };
 if (imagebamHeaders && isFF) {
@@ -6789,13 +6965,15 @@ if (imagebamHeaders && isFF) {
                                             resolve(null);
                                         }
                                     });
+                                    console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                     const finalUrl = pre && (pre.finalUrl || pre.responseURL);
+                                    console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                     if (finalUrl && typeof finalUrl === 'string' && /^https?:\/\//i.test(finalUrl)) {
                                         dlOpts.url = finalUrl;
                                     }
                                 } catch (e) {}
                             }
-
+console.log("DOWNLOAD URL:", dlOpts.url);
 GM_download(dlOpts);
                         }
 
@@ -6886,12 +7064,12 @@ if (isGoFile || isPixeldrain || isFilester) {
                         const totalSizeInMB = Number(response.total / 1024 / 1024).toFixed(2);
                         if (response.total === -1 || response.totalSize === -1) {
                             h.ui.setElProps(filePB, { width: '0%' });
-                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 ${downloadedSizeInMB} MB 🢒 ${ellipsedUrl}`);
+                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ ${downloadedSizeInMB} MB ðŸ¢’ ${ellipsedUrl}`);
                         } else {
                             h.show(filePB);
                             h.ui.setText(
                                 statusLabel,
-                                `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 ${downloadedSizeInMB} MB / ${totalSizeInMB} MB  🢒 ${ellipsedUrl}`,
+                                `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ ${downloadedSizeInMB} MB / ${totalSizeInMB} MB  ðŸ¢’ ${ellipsedUrl}`,
                             );
                             h.ui.setElProps(filePB, {
                                 width: `${(response.loaded / response.total) * 100}%`,
@@ -6927,7 +7105,7 @@ if (isGoFile || isPixeldrain || isFilester) {
                         completed++;
                         completedBatchedDownloads++;
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -6961,7 +7139,7 @@ if (isGoFile || isPixeldrain || isFilester) {
                                 completed++;
                                 completedBatchedDownloads++;
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -7130,7 +7308,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                     completed++;
                                     completedBatchedDownloads++;
 
-                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                     h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                     h.ui.setElProps(totalPB, {
                                         width: `${(completed / totalDownloadable) * 100}%`,
@@ -7143,7 +7321,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                 completed++;
                                 completedBatchedDownloads++;
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -7193,7 +7371,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                 completed++;
                                 completedBatchedDownloads++;
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -7209,7 +7387,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                         completed++;
                         completedBatchedDownloads++;
 
-                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                         h.ui.setElProps(statusLabel, { color: '#2d9053' });
                         h.ui.setElProps(totalPB, {
                             width: `${(completed / totalDownloadable) * 100}%`,
@@ -7269,7 +7447,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                             basename =
                                 parseDispositionFilename(rh) ||
                                 (filename ? filename.name : h.basename(url).replace(/\?.*/, '').replace(/#.*/, ''));
-                        } else if (url.includes('https://simpcity.su/attachments/')) {
+                        } else if (url.includes('https://simpcity.su/attachments/') || url.includes('https://socialmediagirls.com/attachments/')) {
                             basename = filename ? filename.name : h.basename(url).replace(/(.*)-(.{3,4})\.\d*$/i, '$1.$2');
                         } else if (url.includes('kemono.cr')) {
                             basename = filename
@@ -7462,19 +7640,51 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                         const saveAsName = (isFF && !zippedForThis) ? saveAsFF : saveAsPath;
 
                         if (!zippedForThis) {
-                            const blobUrl = URL.createObjectURL(fileBlob);
-                            GM_download({
-                                url: blobUrl,
-                                name: saveAsName,
-                                onload: () => {
-                                    try { URL.revokeObjectURL(blobUrl); } catch (e) {}
-                                },
-                                onerror: response => {
-                                    console.log(`Error writing file ${fn} to disk. There may be more details below.`);
-                                    console.log(response);
-                                    try { URL.revokeObjectURL(blobUrl); } catch (e) {}
-                                },
-                            });
+                            if (isFF) {
+                                // Firefox: saveAs works reliably with blobs
+                                try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
+                                    console.log('saveAs (FF) failed:', e);
+                                }
+                            } else {
+                                // Chrome/TM: try GM_download first.
+                                // If it fails (not_whitelisted or other error), fall back to saveAs.
+                                let gmDlResolved = false;
+                                const gmDlResolve = (success) => {
+                                    if (gmDlResolved) return;
+                                    gmDlResolved = true;
+                                    if (completed < totalDownloadable) completed++;
+                                    completedBatchedDownloads++;
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ${ellipsedUrl}`);
+                                    h.ui.setElProps(statusLabel, { color: success ? '#2d9053' : '#b23b3b' });
+                                    h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
+                                };
+                                const safetyTimer = setTimeout(() => {
+                                    log.post.error(postId, `::Download timed out (5min safety)::: ${url}`, postNumber);
+                                    gmDlResolve(false);
+                                }, 5 * 60 * 1000);
+                                const blobUrl = URL.createObjectURL(fileBlob);
+                                GM_download({
+                                    url: blobUrl,
+                                    name: saveAsName,
+                                    onload: () => {
+                                        clearTimeout(safetyTimer);
+                                        try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                        gmDlResolve(true);
+                                    },
+                                    onerror: response => {
+                                        clearTimeout(safetyTimer);
+                                        // not_whitelisted or other GM_download error - fall back to saveAs
+                                        try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                        console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
+                                        console.log(response);
+                                        // saveAs can't create subfolders, so use flat name with thread title
+                                        try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
+                                            console.log('saveAs fallback also failed:', e);
+                                        }
+                                        gmDlResolve(false);
+                                    },
+                                });
+                            }
                         }
 
                                                 if (zippedForThis) {
@@ -7494,7 +7704,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                         completed++;
                         completedBatchedDownloads++;
 
-                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
+                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                         h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                         h.ui.setElProps(totalPB, {
                             width: `${(completed / totalDownloadable) * 100}%`,
@@ -7803,12 +8013,22 @@ const addDownloadPageButton = () => {
 
     const buttonTextSpan = document.createElement('span');
     buttonTextSpan.setAttribute('class', 'button-text download-page-btn');
-    buttonTextSpan.innerText = `🡳 Download Page`;
+    buttonTextSpan.innerText = `Download Page`;
 
     downloadAllButton.appendChild(buttonTextSpan);
 
-    const buttonGroup = h.element('.buttonGroup');
-    buttonGroup.prepend(downloadAllButton);
+
+    let buttonGroup = h.element('.buttonGroup')
+        || document.querySelector('.block-outer-opposite .buttonGroup')
+        || document.querySelector('.block-outer-main .buttonGroup')
+        || document.querySelector('.p-body-header .buttonGroup')
+        || document.querySelector('.block .block-outer .buttonGroup');
+    if (buttonGroup) {
+        buttonGroup.prepend(downloadAllButton);
+    } else {
+        document.body.prepend(downloadAllButton);
+        console.warn('Download button: .buttonGroup não encontrada, inserido no body');
+    }
 
     return downloadAllButton;
 };
@@ -7920,8 +8140,341 @@ async function cyberdrop_helper(apiUrl) {
     return null;
 }
 
+
+async function getAllWatchedThreads() {
+    let urls = [];
+    let currentPage = 1;
+    let allPagesProcessed = false;
+    const isSMG = window.location.hostname.includes('socialmediagirls');
+    const baseUrl = isSMG
+        ? 'https://forums.socialmediagirls.com/watched/threads'
+        : 'https://simpcity.cr/watched/threads';
+
+    console.log('Collecting all watched threads...');
+
+    while (!allPagesProcessed) {
+        try {
+            const pageUrl = currentPage === 1 ? baseUrl : `${baseUrl}/page-${currentPage}`;
+            console.log(`Collecting page ${currentPage} of watched: ${pageUrl}`);
+
+            const { source } = await h.http.get(pageUrl);
+            if (!source) {
+                console.warn('Empty response for watched page', pageUrl);
+                break;
+            }
+
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(source, 'text/html');
+
+            const threadSelectors = [
+                'a[href^="https://simpcity.cr/threads"]',
+                'a[href^="/threads/"]',
+                'a[href^="https://forums.socialmediagirls.com/threads"]',
+            ];
+            const anchors = [...doc.querySelectorAll(threadSelectors.join(','))];
+
+            const pageUrls = [...new Set(anchors.map(a => {
+                try {
+                    let url = a.href;
+
+                    url = url
+                        .replace(/\/unread.*$/, '')
+                        .replace(/\/page-\d+.*$/, '')
+                        .replace(/\/latest.*$/, '')
+                        .replace(/#.*$/, '')
+                        .replace(/\?.*$/, '');
+
+
+                    if (!url.endsWith('/')) {
+                        url += '/';
+                    }
+
+                    return url;
+                } catch {
+                    return null;
+                }
+            }).filter(url => url !== null))];
+
+            urls.push(...pageUrls);
+            urls = [...new Set(urls)];
+
+            const nextPageLink = doc.querySelector('a[href*="page-' + (currentPage + 1) + '"]');
+            if (!nextPageLink) {
+                allPagesProcessed = true;
+                console.log(`Last page of watched (${currentPage})`);
+            }
+
+            currentPage++;
+            await h.delayedResolve(2000);
+        } catch (e) {
+            console.error('Error collecting watched page', e);
+            break;
+        }
+    }
+
+    console.log(`Total of pages: ${urls.length}`);
+    return urls;
+}
+
+/**
+ * @param post
+ */
+const addDownloadWatchedButton = () => {
+    const downloadAllButton = document.createElement('a');
+    downloadAllButton.setAttribute('id', 'download-watched');
+    downloadAllButton.setAttribute('href', '#');
+    downloadAllButton.setAttribute('class', 'button--link button rippleButton');
+
+    const buttonTextSpan = document.createElement('span');
+    buttonTextSpan.setAttribute('class', 'button-text download-watched-btn');
+    buttonTextSpan.innerText = `Download Watched`;
+
+    downloadAllButton.appendChild(buttonTextSpan);
+
+    let buttonGroup = h.element('.buttonGroup')
+        || document.querySelector('.block-outer-opposite .buttonGroup')
+        || document.querySelector('.block-outer-main .buttonGroup')
+        || document.querySelector('.p-body-header .buttonGroup')
+        || document.querySelector('.block .block-outer .buttonGroup');
+    if (buttonGroup) {
+        buttonGroup.prepend(downloadAllButton);
+    } else {
+        document.body.prepend(downloadAllButton);
+        console.warn('Download watched button: .buttonGroup não encontrada, inserido no body');
+    }
+
+    return downloadAllButton;
+};
+
+async function processThreadFromHTML(url) {
+    try {
+        const baseUrl = url.replace(/\/page-\d+/, '').replace(/\/$/, '');
+
+        console.log(`Detecting the last page of the thread: ${baseUrl}`);
+
+        const { source: firstPageSource } = await h.http.get(baseUrl).catch(e => ({ source: null }));
+        if (!firstPageSource) {
+            console.error(`Failed to load the base page: ${baseUrl}`);
+            return;
+        }
+
+        const parser = new DOMParser();
+        const firstDoc = parser.parseFromString(firstPageSource, 'text/html');
+
+        let lastPage = 1;
+
+        const pageNavSimple = firstDoc.querySelector('.pageNavSimple-el');
+        if (pageNavSimple) {
+            const text = pageNavSimple.textContent.trim();
+            const match = text.match(/(\d+)\s*(?:of|de|\/)\s*(\d+)/i);
+            if (match && match[2]) lastPage = parseInt(match[2], 10);
+        }
+
+        if (lastPage === 1) {
+            const paginationLinks = firstDoc.querySelectorAll('.pageNav-link:not(.pageNav-prev):not(.pageNav-next)');
+            if (paginationLinks.length > 0) {
+                const lastLink = paginationLinks[paginationLinks.length - 1];
+                const match = lastLink.href.match(/page-(\d+)/);
+                if (match) lastPage = parseInt(match[1], 10);
+            }
+        }
+
+        if (lastPage === 1) {
+            const allLinks = [...firstDoc.querySelectorAll('a[href*="page-"]')];
+            for (const link of allLinks) {
+                const m = link.href.match(/page-(\d+)/);
+                if (m) {
+                    const num = parseInt(m[1], 10);
+                    if (num > lastPage) lastPage = num;
+                }
+            }
+        }
+
+        console.log(`Thread detectada com ${lastPage} ${lastPage === 1 ? 'página' : 'páginas'}`);
+
+
+        let allPostData = [];
+
+        let statusContainer = document.getElementById('download-watched-status');
+        if (!statusContainer) {
+            statusContainer = document.createElement('div');
+            statusContainer.id = 'download-watched-status';
+            statusContainer.style.display = 'none';
+            document.body.appendChild(statusContainer);
+        }
+
+        let threadTitle = '';
+        const titleEl = firstDoc.querySelector('.p-title-value');
+        if (titleEl) {
+            const raw = h.stripTags(['a', 'span'], titleEl.innerHTML).replace(/\n/g, '').trim();
+            const emojisPattern = /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}...]/gu;
+            threadTitle = !settings.naming.allowEmojis
+                ? raw.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim()
+                : raw;
+        }
+
+        for (let page = lastPage; page >= 1; page--) {
+
+            if (skipCurrentThread) {
+                log.write(null, `Skip detected during page collection. Aborting thread: ${baseUrl}`, 'INFO');
+                skipCurrentThread = false;
+                return;
+            }
+
+            try {
+                const pageUrl = page === 1 ? baseUrl : `${baseUrl}/page-${page}`;
+                console.log(`Collecting posts from page ${page}: ${pageUrl}`);
+
+                const { source } = await h.http.get(pageUrl).catch(e => ({ source: null }));
+                if (!source) {
+                    console.warn(`Page ${page} empty or failed: ${pageUrl}`);
+                    continue;
+                }
+
+                const doc = parser.parseFromString(source, 'text/html');
+                const postElements = [...doc.querySelectorAll('.message-attribution-opposite')];
+
+                if (!postElements.length) {
+                    console.log(`No posts found on page ${page}`);
+                    continue;
+                }
+
+                console.log(`Found ${postElements.length} posts on page ${page}`);
+
+                for (const postEl of postElements) {
+                    if (skipCurrentThread) {
+                        log.write(null, `Skip detected during processement of posts. Aborting thread: ${baseUrl}`, 'INFO');
+                        skipCurrentThread = false;
+                        return;
+                    }
+
+                    try {
+                        const parsedPost = parsers.thread.parsePost(postEl);
+                        if (!parsedPost) continue;
+
+                        const parsedHosts = parsers.hosts.parseHosts(parsedPost.content);
+                        if (!parsedHosts.length) continue;
+
+
+                        let timestamp = parsedPost.date || new Date().toISOString();
+                        if (typeof parsedPost.date === 'string') {
+                            timestamp = new Date(parsedPost.date).getTime();
+                        } else if (parsedPost.timestamp) {
+                            timestamp = parsedPost.timestamp;
+                        }
+
+                        allPostData.push({
+                            parsedPost,
+                            parsedHosts,
+                            timestamp,
+                            page,
+                            postId: parsedPost.id || Math.random().toString(36).slice(2)
+                        });
+                    } catch (err) {
+                        console.error(`Error parsing post on page ${page}:`, err);
+                    }
+                }
+
+                if (page > 1) await h.delayedResolve(1800 + Math.random() * 800);
+            } catch (err) {
+                console.error(`Error general on page ${page}:`, err);
+            }
+        }
+
+        allPostData.sort((a, b) => b.timestamp - a.timestamp);
+
+        console.log(`Total collected: ${allPostData.length} posts with valid hosts. Starting downloads (most recent → oldest)`);
+
+        let totalProcessed = 0;
+
+        for (const { parsedPost, parsedHosts } of allPostData) {
+            if (skipCurrentThread) {
+                log.write(null, `Skip detected during downloads. Aborting thread: ${baseUrl}`, 'INFO');
+                skipCurrentThread = false;
+                break;
+            }
+
+            try {
+                const getEnabledHostsCB = hosts => hosts.filter(h => h.enabled);
+                const getSettingsCB = () => ({
+                    zipped: false,
+                    flatten: false,
+                    generateLinks: false,
+                    generateLog: false,
+                    skipDuplicates: false,
+                    skipDownload: false,
+                    verifyBunkrLinks: false,
+                    output: [],
+                });
+
+                const statusLabel = document.createElement('div');
+                const filePB = document.createElement('div');
+                const totalPB = document.createElement('div');
+                statusContainer.append(statusLabel, filePB, totalPB);
+
+                await downloadPost(
+                    parsedPost,
+                    parsedHosts,
+                    getEnabledHostsCB,
+                    resolvers,
+                    getSettingsCB,
+                    { status: statusLabel, filePB, totalPB },
+                    {},
+                    threadTitle
+                );
+
+                totalProcessed++;
+            } catch (err) {
+                console.error(`Erro ao baixar post (ignorado):`, err);
+            }
+        }
+
+        console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
+    } catch (fatalErr) {
+        console.error('Erro fatal na thread', url, fatalErr);
+    }
+}
+// ---- Download All Pages helper ----
+const addDownloadAllPagesButton = () => {
+    const downloadAllPagesButton = document.createElement('a');
+    downloadAllPagesButton.setAttribute('id', 'download-all-pages');
+    downloadAllPagesButton.setAttribute('href', '#');
+    downloadAllPagesButton.setAttribute('class', 'button--link button rippleButton');
+    downloadAllPagesButton.setAttribute('title', 'Downloads ALL pages of this thread (may take a long time)');
+
+    const buttonTextSpan = document.createElement('span');
+    buttonTextSpan.setAttribute('class', 'button-text download-all-pages-btn');
+    buttonTextSpan.innerText = `Download All Pages`;
+
+    downloadAllPagesButton.appendChild(buttonTextSpan);
+
+    let buttonGroup = h.element('.buttonGroup')
+        || document.querySelector('.block-outer-opposite .buttonGroup')
+        || document.querySelector('.block-outer-main .buttonGroup')
+        || document.querySelector('.p-body-header .buttonGroup')
+        || document.querySelector('.block .block-outer .buttonGroup');
+    if (buttonGroup) {
+        buttonGroup.appendChild(downloadAllPagesButton);
+    } else {
+        document.body.prepend(downloadAllPagesButton);
+        console.warn('Download all pages button: .buttonGroup não encontrada, inserido no body');
+    }
+
+    return downloadAllPagesButton;
+};
+
+async function downloadAllPagesOfCurrentThread() {
+    const threadUrl = location.href.replace(/\/page-\d+/, '').split('#')[0];
+    console.log(`Iniciando download de todas as páginas da thread: ${threadUrl}`);
+    await processThreadFromHTML(threadUrl);
+    console.log('Thread finalizada');
+}
+
+
 const parsedPosts = [];
 const selectedPosts = [];
+let isDownloadingAll = false;
+let skipCurrentThread = false;
 
 (function () {
     try { if (window.__XFPD_ABORT_MAIN) return; } catch (e) {}
@@ -7950,6 +8503,78 @@ const selectedPosts = [];
         }
 
         init.injectCustomStyles();
+
+                // If we are on the watched threads page, add a "Download Watched" button.
+        if (document.location.pathname.startsWith('/watched/threads')) {
+            const btnWatch = addDownloadWatchedButton();
+
+            const btnSkip = document.createElement('button');
+            btnSkip.textContent = 'Skip Current Thread';
+            btnSkip.disabled = true;
+            btnSkip.style.marginLeft = '10px';
+            btnSkip.style.padding = '8px 12px';
+            btnSkip.style.color = 'white';
+            btnSkip.style.border = 'none';
+            btnSkip.style.borderRadius = '4px';
+            btnSkip.style.cursor = 'pointer';
+            btnSkip.style.fontWeight = 'bold';
+
+            btnWatch.parentNode.insertBefore(btnSkip, btnWatch.nextSibling);
+
+            btnSkip.addEventListener('click', () => {
+                if (isDownloadingAll) {
+                    skipCurrentThread = true;
+                    log.write(null, 'Skip requested: pulando o thread atual', 'INFO');
+                    btnSkip.textContent = 'Skipping...';
+                    setTimeout(() => {
+                        if (isDownloadingAll) btnSkip.textContent = 'Skip Current Thread';
+                    }, 2000);
+                } else {
+                    log.write(null, 'Nenhum download em massa rodando para skip', 'WARN');
+                }
+            });
+
+
+            btnWatch.addEventListener('click', async e => {
+                e.preventDefault();
+
+                if (isDownloadingAll) {
+                    log.write(null, 'Download em massa jÃ¡ em andamento', 'WARN');
+                    return;
+                }
+
+                isDownloadingAll = true;
+                skipCurrentThread = false;
+                btnSkip.disabled = false;
+                btnSkip.textContent = 'Skip Current Thread';
+
+                try {
+                    const urls = await getAllWatchedThreads();
+
+                    log.write(null, `Iniciando download de ${urls.length} threads watched`, 'INFO');
+
+                    for (const url of urls) {
+                        if (skipCurrentThread) {
+                            log.write(null, `Pulando thread atual: ${url}`, 'INFO');
+                            skipCurrentThread = false;
+                            continue;
+                        }
+
+                        log.write(null, `Processando thread: ${url}`, 'INFO');
+                        await processThreadFromHTML(url);
+                    }
+
+                    log.write(null, 'Download de todos watched threads concluÃ­do', 'INFO');
+                } catch (err) {
+                    log.write(null, `Erro durante download em massa: ${err.message}`, 'ERROR');
+                } finally {
+                    isDownloadingAll = false;
+                    btnSkip.disabled = true;
+                    btnSkip.textContent = 'Skip Current Thread';
+                }
+            });
+        }
+
 
         h.elements('.message-attribution-opposite').forEach(post => {
             const settings = {
@@ -7985,7 +8610,7 @@ const selectedPosts = [];
             const { btn: btnDownloadPost } = ui.buttons.addDownloadPostButton(post);
             const totalResources = parsedHosts.reduce((acc, host) => acc + host.resources.length, 0);
             const checkedLength = getTotalDownloadableResourcesForPostCB(parsedHosts);
-            btnDownloadPost.innerHTML = `🡳 Download (${checkedLength}/${totalResources})`;
+            btnDownloadPost.innerHTML = `Download (${checkedLength}/${totalResources})`;
 
             // Create download status / progress elements.
             const { el: statusText } = ui.labels.status.createStatusLabel();
@@ -8050,24 +8675,34 @@ const selectedPosts = [];
         if (parsedPosts.filter(p => p.parsedHosts.length).length > 0) {
             const btnDownloadPage = addDownloadPageButton();
 
+            // Add Download All Pages button for regular thread pages
+            if (document.location.pathname.startsWith('/threads/')) {
+                const btnDownloadAllPages = addDownloadAllPagesButton();
+                btnDownloadAllPages.addEventListener('click', async e => {
+                    e.preventDefault();
+                    if (confirm('This will download ALL pages of this thread. It may take a very long time and download thousands of files. Continue?')) {
+                        await downloadAllPagesOfCurrentThread();
+                    }
+                });
+            }
+
             btnDownloadPage.addEventListener('click', e => {
                 e.preventDefault();
 
                 selectedPosts
                     .filter(s => s.enabled)
                     .forEach(s => {
-                    downloadPost(
-                        s.post.parsedPost,
-                        s.post.parsedHosts,
-                        s.post.enabledHostsCB,
-                        s.post.resolvers,
-                        s.post.getSettingsCB,
-                        s.post.statusUI,
-                        s.post.postDownloadCallbacks,
-                    );
-                });
+                        downloadPost(
+                            s.post.parsedPost,
+                            s.post.parsedHosts,
+                            s.post.enabledHostsCB,
+                            s.post.resolvers,
+                            s.post.getSettingsCB,
+                            s.post.statusUI,
+                            s.post.postDownloadCallbacks,
+                        );
+                    });
             });
-
             // TODO: Extract to ui.js
             const color = ui.getTooltipBackgroundColor();
 
@@ -8080,9 +8715,9 @@ const selectedPosts = [];
 
                 selectedPosts.push({ post, enabled: false });
 
-                const threadTitle = parsers.thread.parseTitle();
+                const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
 
-                let defaultPostContent = textContent.trim().replace('​', '');
+                let defaultPostContent = textContent.trim().replace('â€‹', '');
 
                 const ellipsedText = h.limit(defaultPostContent === '' ? threadTitle : defaultPostContent, 20);
 
@@ -8120,10 +8755,12 @@ const selectedPosts = [];
 
                             const checked = e.target.checked;
 
+
                             const postCheckboxes = parsedPosts
-                            .filter(p => p.parsedHosts.length)
-                            .map(p => p.parsedPost)
-                            .flatMap(p => h.element(`#config-download-post-${p.postId}`));
+                                .filter(p => p.parsedHosts.length)
+                                .map(p => p.parsedPost)
+                                .map(p => h.element(`#config-download-post-${p.postId}`))
+                                .filter(Boolean);
 
                             const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
                             const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
