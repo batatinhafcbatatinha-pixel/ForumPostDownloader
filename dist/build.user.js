@@ -139,16 +139,16 @@ function xfpdCloseTabHandle(tabOrPromise) {
         if (typeof tabOrPromise.then === 'function') {
             try {
                 tabOrPromise.then(t => {
-                    try { if (t && typeof t.close === 'function') t.close(); } catch (e) {}
-                }).catch(() => {});
-            } catch (e) {}
+                    try { if (t && typeof t.close === 'function') t.close(); } catch (e) { }
+                }).catch(() => { });
+            } catch (e) { }
             return;
         }
         // Direct tab handle
         if (typeof tabOrPromise.close === 'function') {
-            try { tabOrPromise.close(); } catch (e) {}
+            try { tabOrPromise.close(); } catch (e) { }
         }
-    } catch (e) {}
+    } catch (e) { }
 }
 // ---------------------------------------------------------------------------
 const JSZip = window.JSZip;
@@ -171,8 +171,8 @@ const log = {
     write: (postId, str, type, toConsole = true) => {
         const date = new Date();
         const message = `[${date.toDateString()} ${date.toLocaleTimeString()}] [${type}] ${str}`
-        .replace(/(::.*?::)/gi, (match, g) => g.toUpperCase())
-        .replace(/::/g, '');
+            .replace(/(::.*?::)/gi, (match, g) => g.toUpperCase())
+            .replace(/::/g, '');
         window.logs.push({ postId, message });
         if (toConsole) {
             if (type.toLowerCase() === 'info') {
@@ -368,7 +368,7 @@ function xfpdBunkrBanBase(baseOrUrl) {
         // Don't blacklist the last-resort domain (it may be the only thing left).
         if (base === 'https://bunkr.cr') return;
         xfpdBunkrDomainBanUntil.set(base, Date.now() + BUNKR_DOMAIN_BLACKLIST_MS);
-    } catch (e) {}
+    } catch (e) { }
 }
 
 function xfpdBunkrFilterBases(bases) {
@@ -405,7 +405,7 @@ function xfpdLooksLikeCfChallenge(source, dom) {
 
         // DOM markers (when we have it)
         if (dom?.querySelector?.('#cf-challenge-running, #challenge-form, .cf-browser-verification, .cf-challenge')) return true;
-    } catch (e) {}
+    } catch (e) { }
     return false;
 }
 
@@ -466,7 +466,7 @@ function xfpdBunkrExtractNameFromVsData(data) {
             if (xfpdLooksLikeCfFilenameHint(t)) continue;
             return t;
         }
-    } catch (e) {}
+    } catch (e) { }
     return '';
 }
 
@@ -475,10 +475,10 @@ async function xfpdWarmupTab(url, ms = BUNKR_CF_WARMUP_MS, active = BUNKR_CF_WAR
     try {
         const tab = GM_openInTab(url, { active: !!active, insert: true, setParent: true });
         await h.delayedResolve(ms);
-        try { tab?.close?.(); } catch (e) {}
+        try { tab?.close?.(); } catch (e) { }
     } catch (e) {
         // Ignore - warm-up is best-effort
-        try { await h.delayedResolve(ms); } catch (e2) {}
+        try { await h.delayedResolve(ms); } catch (e2) { }
     }
 }
 
@@ -497,7 +497,7 @@ async function xfpdBunkrCfWarmup(url) {
 
         // If we recently warmed up, don't open another tab; just wait a bit to avoid hammering.
         if (now - xfpdBunkrCfWarmupLastAt < BUNKR_CF_WARMUP_COOLDOWN_MS) {
-            try { await h.delayedResolve(Math.min(1000, BUNKR_CF_WARMUP_MS)); } catch (e) {}
+            try { await h.delayedResolve(Math.min(1000, BUNKR_CF_WARMUP_MS)); } catch (e) { }
             return null;
         }
 
@@ -531,17 +531,17 @@ async function xfpdBunkrGetWithCfRetry(http, url, warmUrlOrOrigin, allowWarmup =
         const source = last?.source || '';
 
 
-// Fast-fail on 403 / CF interstitial for non-last domains:
-// Immediately blacklist this domain and return, so the caller can try the next domain.
-const status = Number(last?.status || 0);
-if (BUNKR_FASTFAIL_ON_403 && (status === 403) && !allowWarmup) {
-    xfpdBunkrBanBase(warmUrlOrOrigin || url);
-    return last || { dom: null, source: '' };
-}
-if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && last && xfpdLooksLikeCfChallenge(source, dom)) {
-    xfpdBunkrBanBase(warmUrlOrOrigin || url);
-    return last || { dom: null, source: '' };
-}
+        // Fast-fail on 403 / CF interstitial for non-last domains:
+        // Immediately blacklist this domain and return, so the caller can try the next domain.
+        const status = Number(last?.status || 0);
+        if (BUNKR_FASTFAIL_ON_403 && (status === 403) && !allowWarmup) {
+            xfpdBunkrBanBase(warmUrlOrOrigin || url);
+            return last || { dom: null, source: '' };
+        }
+        if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && last && xfpdLooksLikeCfChallenge(source, dom)) {
+            xfpdBunkrBanBase(warmUrlOrOrigin || url);
+            return last || { dom: null, source: '' };
+        }
 
         if (last && !xfpdLooksLikeCfChallenge(source, dom)) return last;
 
@@ -549,9 +549,9 @@ if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && last && xfpdLooksLikeCfChallenge(so
             if (allowWarmup) {
                 await xfpdBunkrCfWarmup(String(warmUrlOrOrigin || url));
             } else {
-                try { await h.delayedResolve(200); } catch (e) {}
+                try { await h.delayedResolve(200); } catch (e) { }
             }
-}
+        }
     }
     return last || { dom: null, source: '' };
 }
@@ -580,26 +580,26 @@ async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, orig
 
 
 
-// Fast-fail on 403 / CF interstitial for non-last domains:
-// Immediately blacklist this domain and return null so the caller tries the next domain.
-if (BUNKR_FASTFAIL_ON_403 && (Number(lastStatus || 0) === 403) && !allowWarmup) {
-    xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-    return null;
-}
-if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && xfpdLooksLikeCfChallenge(lastText, null)) {
-    xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-    return null;
-}
-try {
+        // Fast-fail on 403 / CF interstitial for non-last domains:
+        // Immediately blacklist this domain and return null so the caller tries the next domain.
+        if (BUNKR_FASTFAIL_ON_403 && (Number(lastStatus || 0) === 403) && !allowWarmup) {
+            xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
+            return null;
+        }
+        if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && xfpdLooksLikeCfChallenge(lastText, null)) {
+            xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
+            return null;
+        }
+        try {
             return JSON.parse(lastText || '{}');
         } catch (e) {
             if (xfpdLooksLikeCfChallenge(lastText, null) && attempt < BUNKR_CF_MAX_RETRIES) {
                 if (allowWarmup) {
                     await xfpdBunkrCfWarmup(String(refererUrl || originUrl || endpoint));
                 } else {
-                    try { await h.delayedResolve(200); } catch (e2) {}
+                    try { await h.delayedResolve(200); } catch (e2) { }
                 }
-continue;
+                continue;
             }
             return null;
         }
@@ -637,10 +637,10 @@ const h = {
    * @returns {unknown}
    */
     basename: path =>
-    path
-    .replace(/\/(\s+)?$/, '')
-    .split('/')
-    .reverse()[0],
+        path
+            .replace(/\/(\s+)?$/, '')
+            .split('/')
+            .reverse()[0],
     /**
    * @param path
    * @returns {string}
@@ -710,7 +710,7 @@ const h = {
    * @returns {boolean}
    */
     contains: (needle, haystack, ignoreCase = true) =>
-    (ignoreCase ? haystack.toLowerCase().indexOf(needle.toLowerCase()) : haystack.indexOf(needle)) > -1,
+        (ignoreCase ? haystack.toLowerCase().indexOf(needle.toLowerCase()) : haystack.indexOf(needle)) > -1,
     /**
    * @param str
    * @returns {*|string}
@@ -854,7 +854,7 @@ const h = {
                     ...(headers || {}),
                 };
                 const withCredentials = !!(hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials') && hdrs.__xfpd_withCredentials);
-                try { if (hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials')) delete hdrs.__xfpd_withCredentials; } catch (e) {}
+                try { if (hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials')) delete hdrs.__xfpd_withCredentials; } catch (e) { }
 
                 request = http({
                     url,
@@ -1004,7 +1004,7 @@ const parsers = {
      */
         parseTitle: () => {
             const emojisPattern =
-                  /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f191}-\u{1f251}\u{1f004}\u{1f0cf}\u{1f170}-\u{1f171}\u{1f17e}-\u{1f17f}\u{1f18e}\u{3030}\u{2b50}\u{2b55}\u{2934}-\u{2935}\u{2b05}-\u{2b07}\u{2b1b}-\u{2b1c}\u{3297}\u{3299}\u{303d}\u{00a9}\u{00ae}\u{2122}\u{23f3}\u{24c2}\u{23e9}-\u{23ef}\u{25b6}\u{23f8}-\u{23fa}]/gu;
+                /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f191}-\u{1f251}\u{1f004}\u{1f0cf}\u{1f170}-\u{1f171}\u{1f17e}-\u{1f17f}\u{1f18e}\u{3030}\u{2b50}\u{2b55}\u{2934}-\u{2935}\u{2b05}-\u{2b07}\u{2b1b}-\u{2b1c}\u{3297}\u{3299}\u{303d}\u{00a9}\u{00ae}\u{2122}\u{23f3}\u{24c2}\u{23e9}-\u{23ef}\u{25b6}\u{23f8}-\u{23fa}]/gu;
             let parsed = h.stripTags(['a', 'span'], h.element('.p-title-value').innerHTML).replace('/\n/g', '');
             return !settings.naming.allowEmojis ? parsed.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim() : parsed.trim();
         },
@@ -1015,20 +1015,17 @@ const parsers = {
      */
 
         parsePost: post => {
-                        // Garante que só processa posts reais
-                        if (!post.parentNode || !post.parentNode.parentNode) return null;
-                        const parent = post.parentNode.parentNode;
-                        if (!parent.querySelector('.message-content')) return null;
-            // Seletor mais flexível para encontrar o conteúdo do post
+            if (!post.parentNode || !post.parentNode.parentNode) return null;
+            const parent = post.parentNode.parentNode;
+            if (!parent.querySelector('.message-content')) return null;
             let messageContent = post.parentNode.parentNode.querySelector('.message-content .message-userContent');
             if (!messageContent) {
-                // fallback: tenta pegar diretamente .message-userContent
                 messageContent = post.parentNode.parentNode.querySelector('.message-userContent');
             }
             const footer = post.parentNode.parentNode.querySelector('footer');
             if (!messageContent) {
-                console.warn('parsePost: .message-userContent não encontrado', post);
-                return null; // Ignora posts sem conteúdo válido
+                console.warn('parsePost: .message-userContent not found', post);
+                return null;
             }
             const messageContentClone = messageContent.cloneNode(true);
 
@@ -1044,15 +1041,15 @@ const parsers = {
             ['.contentRow-figure', '.js-unfurl-favicon', 'blockquote', '.button-text > span']
                 .flatMap(i => [...messageContentClone.querySelectorAll(i)])
                 .forEach(i => {
-                if (i.tagName === 'BLOCKQUOTE') {
-                    // Only remove blockquotes that quote the other posts.
-                    if (i.querySelector('.bbCodeBlock-title')) {
+                    if (i.tagName === 'BLOCKQUOTE') {
+                        // Only remove blockquotes that quote the other posts.
+                        if (i.querySelector('.bbCodeBlock-title')) {
+                            i.remove();
+                        }
+                    } else {
                         i.remove();
                     }
-                } else {
-                    i.remove();
-                }
-            });
+                });
 
             // Remove thread links.
             [...messageContentClone.querySelectorAll('.contentRow-header > a[href^="https://simpcity.su/threads"]')]
@@ -1088,10 +1085,10 @@ const parsers = {
                         if (!looksRedirect && !looksLinkProxy) return null;
 
                         const to = u.searchParams.get('to')
-                                 || u.searchParams.get('url')
-                                 || u.searchParams.get('u')
-                                 || u.searchParams.get('link')
-                                 || u.searchParams.get('target');
+                            || u.searchParams.get('url')
+                            || u.searchParams.get('u')
+                            || u.searchParams.get('link')
+                            || u.searchParams.get('target');
                         if (!to) return null;
 
                         const mode = (u.searchParams.get('m') || '').toLowerCase();
@@ -1172,7 +1169,7 @@ const parsers = {
                         const decoded = __decodeForumRedirect(c);
                         if (decoded) {
                             let finalUrl = decoded;
-a.setAttribute('data-url', finalUrl);
+                            a.setAttribute('data-url', finalUrl);
                             a.setAttribute('href', finalUrl);
                             a.setAttribute('data-xfpd-decoded', '1');
                             break;
@@ -1209,25 +1206,25 @@ a.setAttribute('data-url', finalUrl);
 
             // Extract spoilers from the post content.
             const spoilers = [...messageContentClone.querySelectorAll('.bbCodeBlock--spoiler > .bbCodeBlock-content')]
-            .filter(s => !s.querySelector('.bbCodeBlock--unfurl'))
-            .concat([...messageContentClone.querySelectorAll('.bbCodeInlineSpoiler')].filter(s => !s.querySelector('.bbCodeBlock--unfurl')))
-            .map(s => s.innerText)
-            .concat(
-                h.re
-                .matchAll(/(?<=pw|pass|passwd|password)(\s:|:)?\s+?[a-zA-Z0-9~!@#$%^&*()_+{}|:'"<>?\/,;.]+/gis, messageContentClone.innerText)
-                .map(s => s.trim()),
-            )
-            .map(s =>
-                 s
-                 .trim()
-                 .replace(/^:/, '')
-                 .replace(/\bp:\b/i, '')
-                 .replace(/\bpw:\b/i, '')
-                 .replace(/\bkey:\b/i, '')
-                 .trim(),
+                .filter(s => !s.querySelector('.bbCodeBlock--unfurl'))
+                .concat([...messageContentClone.querySelectorAll('.bbCodeInlineSpoiler')].filter(s => !s.querySelector('.bbCodeBlock--unfurl')))
+                .map(s => s.innerText)
+                .concat(
+                    h.re
+                        .matchAll(/(?<=pw|pass|passwd|password)(\s:|:)?\s+?[a-zA-Z0-9~!@#$%^&*()_+{}|:'"<>?\/,;.]+/gis, messageContentClone.innerText)
+                        .map(s => s.trim()),
                 )
-            .filter(s => s !== '')
-            .unique();
+                .map(s =>
+                    s
+                        .trim()
+                        .replace(/^:/, '')
+                        .replace(/\bp:\b/i, '')
+                        .replace(/\bpw:\b/i, '')
+                        .replace(/\bkey:\b/i, '')
+                        .trim(),
+                )
+                .filter(s => s !== '')
+                .unique();
 
             const postContent = messageContentClone.innerHTML;
             const postTextContent = messageContentClone.innerText;
@@ -1294,15 +1291,15 @@ a.setAttribute('data-url', finalUrl);
                     let matches = h.re.matchAll(pattern, postContent).unique();
 
                     matches = matches.map(url => {
-                // Some XenForo post HTML can leak into the match (e.g. trailing </a>...</div>), which then
-                // creates "ghost" resources (and broken filenames like "div>"). Strip anything after the URL.
-                url = String(url || '');
-                url = url.replace(/&amp;/g, '&');
-                url = url.split(/[\s"'<>]/)[0].trim();
-                // Normalize scheme so the same link in different representations dedupes cleanly.
-                if (url && !/^https?:\/\//i.test(url)) {
-                    url = `https://${url}`;
-                }
+                        // Some XenForo post HTML can leak into the match (e.g. trailing </a>...</div>), which then
+                        // creates "ghost" resources (and broken filenames like "div>"). Strip anything after the URL.
+                        url = String(url || '');
+                        url = url.replace(/&amp;/g, '&');
+                        url = url.split(/[\s"'<>]/)[0].trim();
+                        // Normalize scheme so the same link in different representations dedupes cleanly.
+                        if (url && !/^https?:\/\//i.test(url)) {
+                            url = `https://${url}`;
+                        }
 
                         if (stripQueryString && h.contains('?', url)) {
                             url = url.substring(0, url.indexOf('?'));
@@ -1357,10 +1354,10 @@ a.setAttribute('data-url', finalUrl);
 
             return parsed
                 .map(p => ({
-                ...p,
-                enabled: true,
-                id: Math.round(Math.random() * Number.MAX_SAFE_INTEGER),
-            }))
+                    ...p,
+                    enabled: true,
+                    id: Math.round(Math.random() * Number.MAX_SAFE_INTEGER),
+                }))
                 .filter(p => p.resources.length);
         },
     },
@@ -1740,7 +1737,7 @@ const ui = {
                     let formHtml = [
                         window.isFF ? ui.forms.config.post.createFilenameInput(customFilename, postId, color, defaultFilename) : null,
                         settingsHeading,
-                        ui.forms.config.post.createZippedCheckbox(postId, settings.zipped),                        ui.forms.config.post.createFlattenCheckbox(postId, settings.flatten),
+                        ui.forms.config.post.createZippedCheckbox(postId, settings.zipped), ui.forms.config.post.createFlattenCheckbox(postId, settings.flatten),
                         ui.forms.config.post.createSkipDuplicatesCheckbox(postId, settings.skipDuplicates),
                         ui.forms.config.post.createGenerateLinksCheckbox(postId, settings.generateLinks),
                         ui.forms.config.post.createGenerateLogCheckbox(postId, settings.generateLog),
@@ -1807,11 +1804,11 @@ const ui = {
                                 settings.verifyBunkrLinks = e.target.checked;
                             });
                             h.element(`#settings-${postId}-zipped`).addEventListener('change', e => {
-                                settings.zipped = e.target.checked;                                if (updateSettings) {
+                                settings.zipped = e.target.checked; if (updateSettings) {
                                     setPrevSettings(settings);
                                 }
                             });
-h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => {
+                            h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => {
                                 settings.generateLinks = e.target.checked;
 
                                 if (updateSettings) {
@@ -1874,14 +1871,14 @@ h.element(`#settings-${postId}-generate-links`).addEventListener('change', e => 
 
                                     if (parsedHosts.length > 0) {
                                         const checkedLength = parsedHosts
-                                        .flatMap(host => h.element(`#downloader-host-${host.id}-${postId}`))
-                                        .filter(h => h.checked).length;
+                                            .flatMap(host => h.element(`#downloader-host-${host.id}-${postId}`))
+                                            .filter(h => h.checked).length;
 
                                         const totalResources = parsedHosts.reduce((acc, host) => acc + host.resources.length, 0);
 
                                         const totalDownloadableResources = parsedHosts
-                                        .filter(host => host.enabled && host.resources.length)
-                                        .reduce((acc, host) => acc + host.resources.length, 0);
+                                            .filter(host => host.enabled && host.resources.length)
+                                            .reduce((acc, host) => acc + host.resources.length, 0);
 
                                         btnDownloadPost.innerHTML = `Download (${totalDownloadableResources}/${totalResources})`;
 
@@ -1978,10 +1975,10 @@ const hosts = [
     ['kemono:direct link', [/.{2,6}\.kemono.cr\/data\//]],
     ['Postimg:image', [/!!https?:\/\/(www.)?i\.?(postimg|pixxxels).cc\/(.{8})/]], //[/!!https?:\/\/(www.)?postimg.cc\/(.{8})/]],
     ['Ibb:image',
-     [
-         /!!(?<=href=")https?:\/\/(www.)?([a-z](\d+)?\.)?ibb\.co\/([a-zA-Z0-9_.-]){7}((?=")|\/)(([a-zA-Z0-9_.-])+(?="))?/,
-         /ibb.co\/album\/[~an@_.-]+/,
-     ],
+        [
+            /!!(?<=href=")https?:\/\/(www.)?([a-z](\d+)?\.)?ibb\.co\/([a-zA-Z0-9_.-]){7}((?=")|\/)(([a-zA-Z0-9_.-])+(?="))?/,
+            /ibb.co\/album\/[~an@_.-]+/,
+        ],
     ],
     ['Ibb:direct link', [/!!(?<=data-src=")https?:\/\/(www.)?([a-z](\d+)?\.)?ibb\.co\/([a-zA-Z0-9_.-]){7}((?=")|\/)(([a-zA-Z0-9_.-])+(?="))?/]],
     ['Imagevenue:image', [/!!https?:\/\/(www.)?imagevenue\.com\/(.{8})/]],
@@ -2000,9 +1997,9 @@ const hosts = [
     ['Redgifs:video', [/!!redgifs.com(\/|\\\/)ifr.*?(?=["']|&quot;)/]],
     ['Redgifs:user', [/redgifs\.com\/users\//]],
     ['Bunkr:',
-     [
-         /!!(?<=href=")https:\/\/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/)).*?(?=")|(?<=(href=")|(src="))https:\/\/((i|cdn|i-pizza|big-taco-1img)(\d+)?\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/))\/(v\/)?.*?(?=")/,
-     ]
+        [
+            /!!(?<=href=")https:\/\/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/)).*?(?=")|(?<=(href=")|(src="))https:\/\/((i|cdn|i-pizza|big-taco-1img)(\d+)?\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/))\/(v\/)?.*?(?=")/,
+        ]
     ],
     ['Bunkr:Albums', [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)\/a\//]],
     ['Give.xxx:Profiles', [/give.xxx\/[~an@_-]+/]],
@@ -2027,7 +2024,7 @@ const hosts = [
 /* -------------------------------------------------------------------------
  * Turbo sign hardening:
  * - timeout 5000ms
- * - retry 2x with jitter delay 700â€“1400ms
+ * - retry 2x with jitter delay 700-1400ms
  * This avoids rare ~50s "waiting" stalls on https://turbo.cr/api/sign
  * ------------------------------------------------------------------------- */
 const XFPD_TURBO_SIGN_TIMEOUT_MS = 5000;
@@ -2144,13 +2141,13 @@ const resolvers = [
                 const { dom } = await http.get(finalURL);
 
                 const links = [...dom.querySelectorAll('.card-list__items > article')]
-                .map(a => a.querySelector('.post-card__heading > a'))
-                .map(a => {
-                    return {
-                        link: `${host}${a.getAttribute('href')}`,
-                        id: a.getAttribute('href').split('/').reverse()[0],
-                    };
-                });
+                    .map(a => a.querySelector('.post-card__heading > a'))
+                    .map(a => {
+                        return {
+                            link: `${host}${a.getAttribute('href')}`,
+                            id: a.getAttribute('href').split('/').reverse()[0],
+                        };
+                    });
 
                 posts.push(...links);
                 nextPage = dom.querySelector('a[title="Next page"]');
@@ -2235,9 +2232,9 @@ const resolvers = [
     [
         [/(jpg\d\.(church|fish|fishing|pet|su|cr))|selti-delivery\.ru\//i, /:!jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)/i],
         url =>
-        url
-        .replace('.th.', '.')
-        .replace('.md.', '.')
+            url
+                .replace('.th.', '.')
+                .replace('.md.', '.')
     ],
     [
         [/jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)/i],
@@ -2306,11 +2303,11 @@ const resolvers = [
 
             const resolvePageImages = async dom => {
                 const images = [...dom.querySelectorAll('.list-item-image > a > img')]
-                .map(img => img.getAttribute('src'))
-                .map(url =>
-                     url
-                     .replace('.md.', '.')
-                     .replace('.th.', '.')
+                    .map(img => img.getAttribute('src'))
+                    .map(url =>
+                        url
+                            .replace('.md.', '.')
+                            .replace('.th.', '.')
                     );
 
                 const nextPage = dom.querySelector('a[data-pagination="next"]');
@@ -2336,10 +2333,10 @@ const resolvers = [
     [
         [/\/\/ibb.co\/[a-zA-Z0-9-_.]+/, /:!([a-z](\d+)?\.)?ibb.co\/album\/[a-zA-Z0-9_.-]+/],
         async (url, http) => {
-            try{
+            try {
                 const { dom } = await http.get(url);
                 return dom.querySelector('.header-content-right > a').getAttribute('href');
-            } catch (err){
+            } catch (err) {
                 url => url;
             }
         },
@@ -2415,8 +2412,8 @@ const resolvers = [
             }
 
             const resolved = h.re
-            .matchAll(/(?<=\[img])https:\/\/t\d+.*?(?=\[\/img])/gis, imageLinksInput.getAttribute('value'))
-            .map(url => url.replace(/t(\d+)\./gi, 'img$1.').replace(/thumbs\//i, 'images/'));
+                .matchAll(/(?<=\[img])https:\/\/t\d+.*?(?=\[\/img])/gis, imageLinksInput.getAttribute('value'))
+                .map(url => url.replace(/t(\d+)\./gi, 'img$1.').replace(/thumbs\//i, 'images/'));
 
             return {
                 dom,
@@ -2449,51 +2446,51 @@ const resolvers = [
                 const index = segments.findIndex(s => ['f', 'v', 'd'].includes(s));
                 const id = index > -1 ? segments.slice(index + 1).join('/') : segments.pop();
 
-// Best-effort: read the human filename from the view page (og:title / h1 / <title>).
-// This lets us rename CDN GUID links back to the original filename.
-try {
-    const strip = (s) => String(s || '').split('#')[0].split('?')[0];
-    const bases = xfpdBunkrFilterBases([origin, 'https://bunkr.pk', 'https://bunkr.cr']);
+                // Best-effort: read the human filename from the view page (og:title / h1 / <title>).
+                // This lets us rename CDN GUID links back to the original filename.
+                try {
+                    const strip = (s) => String(s || '').split('#')[0].split('?')[0];
+                    const bases = xfpdBunkrFilterBases([origin, 'https://bunkr.pk', 'https://bunkr.cr']);
 
-    for (const base of bases) {
-        const base0 = String(base || '').replace(/\/$/, '');
-        const candidates = [];
-        if (/\/v\//i.test(pathname) && base0 === origin) candidates.push(cleanUrl);
-        candidates.push(`${base0}/v/${id}`);
-        candidates.push(`${base0}/f/${id}`);
+                    for (const base of bases) {
+                        const base0 = String(base || '').replace(/\/$/, '');
+                        const candidates = [];
+                        if (/\/v\//i.test(pathname) && base0 === origin) candidates.push(cleanUrl);
+                        candidates.push(`${base0}/v/${id}`);
+                        candidates.push(`${base0}/f/${id}`);
 
-        const uniq = candidates.filter((v, i, a) => a.indexOf(v) === i);
-        let found = false;
+                        const uniq = candidates.filter((v, i, a) => a.indexOf(v) === i);
+                        let found = false;
 
-        for (const viewUrl of uniq) {
-            const viewRes = await xfpdBunkrGetWithCfRetry(http, viewUrl, base0, base0 === 'https://bunkr.cr');
-            const dom = viewRes?.dom;
-            const viewSource = viewRes?.source || '';
+                        for (const viewUrl of uniq) {
+                            const viewRes = await xfpdBunkrGetWithCfRetry(http, viewUrl, base0, base0 === 'https://bunkr.cr');
+                            const dom = viewRes?.dom;
+                            const viewSource = viewRes?.source || '';
 
-            // If Cloudflare interstitial is active, don't capture a bogus "Just a moment..." title as a filename hint.
-            if (xfpdLooksLikeCfChallenge(viewSource, dom)) continue;
+                            // If Cloudflare interstitial is active, don't capture a bogus "Just a moment..." title as a filename hint.
+                            if (xfpdLooksLikeCfChallenge(viewSource, dom)) continue;
 
-            let title =
-                dom?.querySelector?.('meta[property="og:title"]')?.getAttribute?.('content') ||
-                dom?.querySelector?.('h1')?.textContent ||
-                dom?.querySelector?.('title')?.textContent ||
-                '';
-            title = String(title || '').replace(/\s+/g, ' ').trim();
-            title = title.replace(/\s*\|\s*Bunkr\s*$/i, '').trim();
+                            let title =
+                                dom?.querySelector?.('meta[property="og:title"]')?.getAttribute?.('content') ||
+                                dom?.querySelector?.('h1')?.textContent ||
+                                dom?.querySelector?.('title')?.textContent ||
+                                '';
+                            title = String(title || '').replace(/\s+/g, ' ').trim();
+                            title = title.replace(/\s*\|\s*Bunkr\s*$/i, '').trim();
 
-            if (title && !xfpdLooksLikeCfFilenameHint(title)) {
-                bunkrNameByUrl.set(cleanUrl, title);
-                bunkrNameByUrl.set(strip(cleanUrl), title);
-                bunkrNameByUrl.set(viewUrl, title);
-                bunkrNameByUrl.set(strip(viewUrl), title);
-                found = true;
-                break;
-            }
-        }
+                            if (title && !xfpdLooksLikeCfFilenameHint(title)) {
+                                bunkrNameByUrl.set(cleanUrl, title);
+                                bunkrNameByUrl.set(strip(cleanUrl), title);
+                                bunkrNameByUrl.set(viewUrl, title);
+                                bunkrNameByUrl.set(strip(viewUrl), title);
+                                found = true;
+                                break;
+                            }
+                        }
 
-        if (found) break;
-    }
-} catch (e) {}
+                        if (found) break;
+                    }
+                } catch (e) { }
 
                 const decodeFinalUrl = data => {
                     try {
@@ -2545,8 +2542,8 @@ try {
                                 bunkrNameByUrl.set(finalUrl, h0);
                                 bunkrNameByUrl.set(strip(finalUrl), h0);
                             }
-                        } catch (e) {}
-return finalUrl;
+                        } catch (e) { }
+                        return finalUrl;
                     } catch (e) {
                         return null;
                     }
@@ -2567,216 +2564,216 @@ return finalUrl;
             }
         },
     ],
-[
-    [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
-    async (url, http, _, __, ___, progressCB) => {
-        const cleanUrl = String(url || '').split('#')[0];
-        const baseUrl = cleanUrl.split('?')[0].replace(/\/+$/, '');
+    [
+        [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
+        async (url, http, _, __, ___, progressCB) => {
+            const cleanUrl = String(url || '').split('#')[0];
+            const baseUrl = cleanUrl.split('?')[0].replace(/\/+$/, '');
 
-        const resolved = [];
-        const seen = new Set();
+            const resolved = [];
+            const seen = new Set();
 
-        // Bunkr album: keep the human filename from the album grid (title / .theName) and attach it to resolved CDN URLs.
-        const nameHintBySlug = new Map();
+            // Bunkr album: keep the human filename from the album grid (title / .theName) and attach it to resolved CDN URLs.
+            const nameHintBySlug = new Map();
 
-        let firstDom = null;
-        let firstSource = null;
+            let firstDom = null;
+            let firstSource = null;
 
-        const sanitizeName = s => String(s || '')
-            .replace(/[\\/:*?"<>|]/g, '-')
-            .replace(/\s+/g, ' ')
-            .trim();
+            const sanitizeName = s => String(s || '')
+                .replace(/[\\/:*?"<>|]/g, '-')
+                .replace(/\s+/g, ' ')
+                .trim();
 
-        const decodeFinalUrl = data => {
-            try {
-                if (!data || !data.url) return null;
-                if (!data.encrypted) return data.url;
-
-                const binaryString = atob(data.url);
-                const keyBytes = new TextEncoder().encode(`SECRET_KEY_${Math.floor(data.timestamp / 3600)}`);
-
-                return Array.from(binaryString)
-                    .map((char, i) => String.fromCharCode(char.charCodeAt(0) ^ keyBytes[i % keyBytes.length]))
-                    .join('');
-            } catch (e) {
-                return null;
-            }
-        };
-
-        const extractSlugsFromDom = dom => {
-            const containers = dom?.querySelectorAll?.('.grid-images > div') || [];
-            const slugs = [];
-
-            for (const c of containers) {
-                const a =
-                    c.querySelector('a[class="after:absolute after:z-10 after:inset-0"]') ||
-                    c.querySelector('a[href*="/f/"]') ||
-                    c.querySelector('a[href*="/v/"]') ||
-                    c.querySelector('a[href*="/d/"]');
-
-                const href = a?.getAttribute?.('href') || '';
-                const m = href.match(/\/(f|v|d)\/([^\/?#]+)/i);
-                if (m && m[2]) {
-                    const slug = m[2];
-                    slugs.push(slug);
-
-                    // Name hint is visible on /a/ pages (e.g. <div title="...mp4"> or .theName). Use it later when we only have a CDN GUID URL.
-                    try {
-                        let hint = c?.getAttribute?.('title') || '';
-                        if (!hint) hint = c?.querySelector?.('.theName')?.textContent || '';
-                        if (!hint) hint = c?.querySelector?.('p.truncate')?.textContent || '';
-                        if (!hint) hint = c?.querySelector?.('.grid-images_box-txt p')?.textContent || '';
-                        hint = String(hint || '').replace(/\s+/g, ' ').trim();
-                        if (hint) nameHintBySlug.set(slug, hint);
-                    } catch (e) {}
-                }
-            }
-
-            return slugs;
-        };
-
-        const asyncPool = async (limit, items, worker) => {
-            const results = new Array(items.length);
-            let i = 0;
-
-            const runners = Array.from({ length: Math.max(1, limit) }, async () => {
-                while (true) {
-                    const idx = i++;
-                    if (idx >= items.length) break;
-                    try {
-                        results[idx] = await worker(items[idx], idx);
-                    } catch (e) {
-                        results[idx] = null;
-                    }
-                }
-            });
-
-            await Promise.all(runners);
-            return results;
-        };
-
-        const origin = (() => {
-            try { return new URL(baseUrl).origin; } catch (e) { return 'https://bunkr.cr'; }
-        })();
-
-        const vsBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
-
-        let folderName = null;
-
-        const MAX_PAGES = 500;
-        const CONCURRENCY = 8;
-
-        const albumUrlObj = (() => {
-            try { return new URL(baseUrl); } catch (e) { return null; }
-        })();
-        const albumPath = (albumUrlObj && albumUrlObj.pathname) ? albumUrlObj.pathname : (() => {
-            try { return new URL(cleanUrl).pathname; } catch (e) { return '/'; }
-        })();
-        const albumBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
-        let albumBaseChosen = null;
-
-        for (let page = 1; page <= MAX_PAGES; page++) {
-            const requestedPageUrl = `${baseUrl}?page=${page}`;
-
-            if (typeof progressCB === 'function') {
-                progressCB(`Resolving: ${requestedPageUrl}`);
-            }
-
-            const pageBases = albumBaseChosen
-                ? [albumBaseChosen, ...xfpdBunkrFilterBases(albumBasesAll).filter(b => b !== albumBaseChosen)]
-                : xfpdBunkrFilterBases(albumBasesAll);
-
-            let dom = null, source = '';
-            let pageUrl = requestedPageUrl;
-            let slugs = [];
-
-            for (const base of pageBases) {
-                const base0 = String(base || '').replace(/\/$/, '');
-                const candidate = `${base0}${albumPath}?page=${page}`;
-                pageUrl = candidate;
-
+            const decodeFinalUrl = data => {
                 try {
-                    ({ dom, source } = await xfpdBunkrGetWithCfRetry(http, candidate, base0, base0 === 'https://bunkr.cr'));
+                    if (!data || !data.url) return null;
+                    if (!data.encrypted) return data.url;
+
+                    const binaryString = atob(data.url);
+                    const keyBytes = new TextEncoder().encode(`SECRET_KEY_${Math.floor(data.timestamp / 3600)}`);
+
+                    return Array.from(binaryString)
+                        .map((char, i) => String.fromCharCode(char.charCodeAt(0) ^ keyBytes[i % keyBytes.length]))
+                        .join('');
                 } catch (e) {
-                    dom = null;
-                    source = '';
+                    return null;
                 }
+            };
 
-                if (xfpdLooksLikeCfChallenge(source, dom)) continue;
+            const extractSlugsFromDom = dom => {
+                const containers = dom?.querySelectorAll?.('.grid-images > div') || [];
+                const slugs = [];
 
-                slugs = extractSlugsFromDom(dom);
-                if (page === 1 && !slugs.length) {
-                    continue;
-                }
+                for (const c of containers) {
+                    const a =
+                        c.querySelector('a[class="after:absolute after:z-10 after:inset-0"]') ||
+                        c.querySelector('a[href*="/f/"]') ||
+                        c.querySelector('a[href*="/v/"]') ||
+                        c.querySelector('a[href*="/d/"]');
 
-                if (!albumBaseChosen) albumBaseChosen = base0;
-                break;
-            }
+                    const href = a?.getAttribute?.('href') || '';
+                    const m = href.match(/\/(f|v|d)\/([^\/?#]+)/i);
+                    if (m && m[2]) {
+                        const slug = m[2];
+                        slugs.push(slug);
 
-            if (!dom) break;
-            if (!slugs.length) break;
-if (page === 1) {
-                firstDom = dom;
-                firstSource = source;
-
-                const h1 = dom?.querySelector?.('h1');
-                const title = (h1?.innerText || h1?.textContent || '').split('\n')[0]?.trim();
-                if (title) folderName = sanitizeName(title);
-            }
-
-            const fresh = [];
-            for (const s of slugs) {
-                if (!s || seen.has(s)) continue;
-                seen.add(s);
-                fresh.push(s);
-            }
-
-            if (!fresh.length) break;
-
-            const urls = await asyncPool(CONCURRENCY, fresh, async (slug) => {
-                let data = null;
-                for (const base of xfpdBunkrFilterBases(vsBasesAll)) {
-                    const base0 = String(base || '').replace(/\/$/, '');
-                    const ep = `${base0}/api/vs`;
-                    data = await xfpdBunkrPostVsWithCfRetry(http, ep, slug, pageUrl, base0, base0 === 'https://bunkr.cr');
-                    if (data && typeof data === 'object' && ('url' in data)) break;
-                    data = null;
-                }
-                if (!data) return null;
-
-                let finalUrl = decodeFinalUrl(data);
-                if (!finalUrl || typeof finalUrl !== 'string') return null;
-
-                finalUrl = finalUrl.trim();
-                if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
-
-                // Attach the album filename hint to the final URL so download naming can use it.
-                try {
-                    const strip = (s) => String(s || '').split('#')[0].split('?')[0];
-                    const hint = (nameHintBySlug.get(slug) || xfpdBunkrExtractNameFromVsData(data) || '');
-                    if (hint && String(hint).trim()) {
-                        const h0 = String(hint).trim();
-                        bunkrNameByUrl.set(finalUrl, h0);
-                        bunkrNameByUrl.set(strip(finalUrl), h0);
+                        // Name hint is visible on /a/ pages (e.g. <div title="...mp4"> or .theName). Use it later when we only have a CDN GUID URL.
+                        try {
+                            let hint = c?.getAttribute?.('title') || '';
+                            if (!hint) hint = c?.querySelector?.('.theName')?.textContent || '';
+                            if (!hint) hint = c?.querySelector?.('p.truncate')?.textContent || '';
+                            if (!hint) hint = c?.querySelector?.('.grid-images_box-txt p')?.textContent || '';
+                            hint = String(hint || '').replace(/\s+/g, ' ').trim();
+                            if (hint) nameHintBySlug.set(slug, hint);
+                        } catch (e) { }
                     }
-                } catch (e) {}
+                }
 
-                return finalUrl;
-            });
+                return slugs;
+            };
 
-            for (const u of urls) if (u) resolved.push(u);
+            const asyncPool = async (limit, items, worker) => {
+                const results = new Array(items.length);
+                let i = 0;
+
+                const runners = Array.from({ length: Math.max(1, limit) }, async () => {
+                    while (true) {
+                        const idx = i++;
+                        if (idx >= items.length) break;
+                        try {
+                            results[idx] = await worker(items[idx], idx);
+                        } catch (e) {
+                            results[idx] = null;
+                        }
+                    }
+                });
+
+                await Promise.all(runners);
+                return results;
+            };
+
+            const origin = (() => {
+                try { return new URL(baseUrl).origin; } catch (e) { return 'https://bunkr.cr'; }
+            })();
+
+            const vsBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
+
+            let folderName = null;
+
+            const MAX_PAGES = 500;
+            const CONCURRENCY = 8;
+
+            const albumUrlObj = (() => {
+                try { return new URL(baseUrl); } catch (e) { return null; }
+            })();
+            const albumPath = (albumUrlObj && albumUrlObj.pathname) ? albumUrlObj.pathname : (() => {
+                try { return new URL(cleanUrl).pathname; } catch (e) { return '/'; }
+            })();
+            const albumBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
+            let albumBaseChosen = null;
+
+            for (let page = 1; page <= MAX_PAGES; page++) {
+                const requestedPageUrl = `${baseUrl}?page=${page}`;
+
+                if (typeof progressCB === 'function') {
+                    progressCB(`Resolving: ${requestedPageUrl}`);
+                }
+
+                const pageBases = albumBaseChosen
+                    ? [albumBaseChosen, ...xfpdBunkrFilterBases(albumBasesAll).filter(b => b !== albumBaseChosen)]
+                    : xfpdBunkrFilterBases(albumBasesAll);
+
+                let dom = null, source = '';
+                let pageUrl = requestedPageUrl;
+                let slugs = [];
+
+                for (const base of pageBases) {
+                    const base0 = String(base || '').replace(/\/$/, '');
+                    const candidate = `${base0}${albumPath}?page=${page}`;
+                    pageUrl = candidate;
+
+                    try {
+                        ({ dom, source } = await xfpdBunkrGetWithCfRetry(http, candidate, base0, base0 === 'https://bunkr.cr'));
+                    } catch (e) {
+                        dom = null;
+                        source = '';
+                    }
+
+                    if (xfpdLooksLikeCfChallenge(source, dom)) continue;
+
+                    slugs = extractSlugsFromDom(dom);
+                    if (page === 1 && !slugs.length) {
+                        continue;
+                    }
+
+                    if (!albumBaseChosen) albumBaseChosen = base0;
+                    break;
+                }
+
+                if (!dom) break;
+                if (!slugs.length) break;
+                if (page === 1) {
+                    firstDom = dom;
+                    firstSource = source;
+
+                    const h1 = dom?.querySelector?.('h1');
+                    const title = (h1?.innerText || h1?.textContent || '').split('\n')[0]?.trim();
+                    if (title) folderName = sanitizeName(title);
+                }
+
+                const fresh = [];
+                for (const s of slugs) {
+                    if (!s || seen.has(s)) continue;
+                    seen.add(s);
+                    fresh.push(s);
+                }
+
+                if (!fresh.length) break;
+
+                const urls = await asyncPool(CONCURRENCY, fresh, async (slug) => {
+                    let data = null;
+                    for (const base of xfpdBunkrFilterBases(vsBasesAll)) {
+                        const base0 = String(base || '').replace(/\/$/, '');
+                        const ep = `${base0}/api/vs`;
+                        data = await xfpdBunkrPostVsWithCfRetry(http, ep, slug, pageUrl, base0, base0 === 'https://bunkr.cr');
+                        if (data && typeof data === 'object' && ('url' in data)) break;
+                        data = null;
+                    }
+                    if (!data) return null;
+
+                    let finalUrl = decodeFinalUrl(data);
+                    if (!finalUrl || typeof finalUrl !== 'string') return null;
+
+                    finalUrl = finalUrl.trim();
+                    if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
+
+                    // Attach the album filename hint to the final URL so download naming can use it.
+                    try {
+                        const strip = (s) => String(s || '').split('#')[0].split('?')[0];
+                        const hint = (nameHintBySlug.get(slug) || xfpdBunkrExtractNameFromVsData(data) || '');
+                        if (hint && String(hint).trim()) {
+                            const h0 = String(hint).trim();
+                            bunkrNameByUrl.set(finalUrl, h0);
+                            bunkrNameByUrl.set(strip(finalUrl), h0);
+                        }
+                    } catch (e) { }
+
+                    return finalUrl;
+                });
+
+                for (const u of urls) if (u) resolved.push(u);
+            }
+
+            if (!folderName) folderName = h.basename(baseUrl);
+
+            return {
+                dom: firstDom,
+                source: firstSource,
+                folderName,
+                resolved,
+            };
         }
-
-        if (!folderName) folderName = h.basename(baseUrl);
-
-        return {
-            dom: firstDom,
-            source: firstSource,
-            folderName,
-            resolved,
-        };
-    }
-],
+    ],
 
     [
         [/give.xxx\//],
@@ -2816,8 +2813,8 @@ if (page === 1) {
                         ...parsed.flatMap(i => {
                             return i.media_attachments
                                 .map(a => {
-                                return a.sizes;
-                            })
+                                    return a.sizes;
+                                })
                                 .map(s => s.large || s.normal || s.small);
                         }),
                     );
@@ -2847,7 +2844,7 @@ if (page === 1) {
             try {
                 // Remove fragment first (everything after '#')
                 cleaned = cleaned.split('#')[0];
-            } catch (e) {}
+            } catch (e) { }
 
             let resolved = cleaned.replace('/u/', '/api/file/').replace('/l/', '/api/list/');
 
@@ -2881,34 +2878,34 @@ if (page === 1) {
                     },
                 );
                 const script = [...dom.querySelectorAll('script')]
-                .map(s => s.innerText)
-                .filter(s => /var\smedia_\d+/gis.test(s))
-                .map(s => {
-                    return {
-                        mediaVars: h.re.matchAll(/var\smedia_\d+=.*?;/gis, s),
-                        flashVars: s,
-                    };
-                })[0];
+                    .map(s => s.innerText)
+                    .filter(s => /var\smedia_\d+/gis.test(s))
+                    .map(s => {
+                        return {
+                            mediaVars: h.re.matchAll(/var\smedia_\d+=.*?;/gis, s),
+                            flashVars: s,
+                        };
+                    })[0];
 
                 const { mediaVars, flashVars } = script;
 
                 return mediaVars
                     .map(m => {
-                    const cleaned = m
-                    .replace(/\/\*.*?\*\//gis, '')
-                    .replace(/var\smedia_\d+=/i, '')
-                    .replace(';', '');
+                        const cleaned = m
+                            .replace(/\/\*.*?\*\//gis, '')
+                            .replace(/var\smedia_\d+=/i, '')
+                            .replace(';', '');
 
-                    return cleaned
-                        .split('+')
-                        .map(s => s.trim())
-                        .map(s => {
-                        let value = new RegExp(`var ${s}=".*?"`, 'isg').exec(flashVars)[0];
-                        value = value.replace(/.*?"/i, '').replace(/"/i, '');
-                        return value;
+                        return cleaned
+                            .split('+')
+                            .map(s => s.trim())
+                            .map(s => {
+                                let value = new RegExp(`var ${s}=".*?"`, 'isg').exec(flashVars)[0];
+                                value = value.replace(/.*?"/i, '').replace(/"/i, '');
+                                return value;
+                            })
+                            .join('');
                     })
-                        .join('');
-                })
                     .find(url => url.indexOf('pornhub.com/video/get_media?s=') > -1);
             };
 
@@ -2938,7 +2935,7 @@ if (page === 1) {
                             break;
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
                 await h.delayedResolve(1000);
                 tries++;
             } while (!parsed && tries < 20);
@@ -2949,188 +2946,188 @@ if (page === 1) {
     [
         [/gofile.io\/d/],
         async (url, http, spoilers, postId) => {
-        const WT_KEY = 'xfpd_gofile_wt';
-        const AT_KEY = 'xfpd_gofile_at';
-        const WT_MAX_AGE_MS = 24 * 3600 * 1000;
-        const AT_MAX_AGE_MS = 24 * 3600 * 1000;
+            const WT_KEY = 'xfpd_gofile_wt';
+            const AT_KEY = 'xfpd_gofile_at';
+            const WT_MAX_AGE_MS = 24 * 3600 * 1000;
+            const AT_MAX_AGE_MS = 24 * 3600 * 1000;
 
-        const gmGet = (key, fallback) => {
-            try {
-                return typeof GM_getValue === 'function' ? GM_getValue(key, fallback) : fallback;
-            } catch (e) {
-                return fallback;
-            }
-        };
-
-        const gmSet = (key, val) => {
-            try {
-                if (typeof GM_setValue === 'function') GM_setValue(key, val);
-            } catch (e) {}
-        };
-
-        const gmReq = async (method, url, data = null, headers = {}, responseType = 'text') => {
-            return await http.base(method, url, {}, headers, data, responseType);
-        };
-
-        const getWebsiteToken = async (force = false) => {
-            const now = Date.now();
-            const cached = gmGet(WT_KEY, null);
-
-            if (!force && cached && cached.value && cached.ts && now - cached.ts < WT_MAX_AGE_MS) {
-                return cached.value;
-            }
-
-            const candidates = ['https://gofile.io/dist/js/config.js', 'https://gofile.io/dist/js/alljs.js'];
-
-            for (const u of candidates) {
+            const gmGet = (key, fallback) => {
                 try {
-                    const { source } = await gmReq('GET', u, null, {}, 'text');
-                    const txt = source || '';
+                    return typeof GM_getValue === 'function' ? GM_getValue(key, fallback) : fallback;
+                } catch (e) {
+                    return fallback;
+                }
+            };
 
-                    const m =
-                        txt.match(/\bwt\s*=\s*"([^"]+)"/) ||
-                        txt.match(/fetchData\.wt\s*=\s*"([^"]+)"/) ||
-                        txt.match(/"wt"\s*:\s*"([^"]+)"/);
+            const gmSet = (key, val) => {
+                try {
+                    if (typeof GM_setValue === 'function') GM_setValue(key, val);
+                } catch (e) { }
+            };
 
-                    if (m && m[1]) {
-                        gmSet(WT_KEY, { value: m[1], ts: now });
-                        return m[1];
+            const gmReq = async (method, url, data = null, headers = {}, responseType = 'text') => {
+                return await http.base(method, url, {}, headers, data, responseType);
+            };
+
+            const getWebsiteToken = async (force = false) => {
+                const now = Date.now();
+                const cached = gmGet(WT_KEY, null);
+
+                if (!force && cached && cached.value && cached.ts && now - cached.ts < WT_MAX_AGE_MS) {
+                    return cached.value;
+                }
+
+                const candidates = ['https://gofile.io/dist/js/config.js', 'https://gofile.io/dist/js/alljs.js'];
+
+                for (const u of candidates) {
+                    try {
+                        const { source } = await gmReq('GET', u, null, {}, 'text');
+                        const txt = source || '';
+
+                        const m =
+                            txt.match(/\bwt\s*=\s*"([^"]+)"/) ||
+                            txt.match(/fetchData\.wt\s*=\s*"([^"]+)"/) ||
+                            txt.match(/"wt"\s*:\s*"([^"]+)"/);
+
+                        if (m && m[1]) {
+                            gmSet(WT_KEY, { value: m[1], ts: now });
+                            return m[1];
+                        }
+                    } catch (e) { }
+                }
+
+                throw new Error('Could not extract GoFile website token (WT).');
+            };
+
+            const createAccountToken = async wt => {
+                const { source } = await gmReq(
+                    'POST',
+                    'https://api.gofile.io/accounts',
+                    JSON.stringify({}),
+                    {
+                        accept: 'application/json',
+                        'content-type': 'application/json',
+                        'x-website-token': wt,
+                    },
+                    'text',
+                );
+
+                const json = JSON.parse(source || '{}');
+
+                if (!json || json.status !== 'ok' || !json.data || !json.data.token) {
+                    throw new Error(`createAccount failed: ${json?.message || json?.status || 'unknown'}`);
+                }
+
+                const token = json.data.token;
+
+                try {
+                    settings.hosts.goFile.token = token;
+                } catch (e) { }
+
+                gmSet(AT_KEY, { token, ts: Date.now() });
+                return token;
+            };
+
+            const getAccountToken = async (force = false) => {
+                // If the user provided a personal Bearer token, always use it.
+                // (This is optional; leaving it empty keeps the anonymous account-token flow.)
+                try {
+                    const override = settings?.hosts?.goFile?.bearerOverride;
+                    if (override && String(override).trim() !== '') {
+                        return String(override).trim();
                     }
-                } catch (e) {}
-            }
+                } catch (e) { }
 
-            throw new Error('Could not extract GoFile website token (WT).');
-        };
+                const now = Date.now();
 
-        const createAccountToken = async wt => {
-            const { source } = await gmReq(
-                'POST',
-                'https://api.gofile.io/accounts',
-                JSON.stringify({}),
-                {
-                    accept: 'application/json',
-                    'content-type': 'application/json',
-                    'x-website-token': wt,
-                },
-                'text',
-            );
-
-            const json = JSON.parse(source || '{}');
-
-            if (!json || json.status !== 'ok' || !json.data || !json.data.token) {
-                throw new Error(`createAccount failed: ${json?.message || json?.status || 'unknown'}`);
-            }
-
-            const token = json.data.token;
-
-            try {
-                settings.hosts.goFile.token = token;
-            } catch (e) {}
-
-            gmSet(AT_KEY, { token, ts: Date.now() });
-            return token;
-        };
-
-        const getAccountToken = async (force = false) => {
-            // If the user provided a personal Bearer token, always use it.
-            // (This is optional; leaving it empty keeps the anonymous account-token flow.)
-            try {
-                const override = settings?.hosts?.goFile?.bearerOverride;
-                if (override && String(override).trim() !== '') {
-                    return String(override).trim();
+                const cached = gmGet(AT_KEY, null);
+                if (!force && cached && cached.token && cached.ts && now - cached.ts < AT_MAX_AGE_MS) {
+                    try {
+                        settings.hosts.goFile.token = cached.token;
+                    } catch (e) { }
+                    return cached.token;
                 }
-            } catch (e) {}
 
-            const now = Date.now();
-
-            const cached = gmGet(AT_KEY, null);
-            if (!force && cached && cached.token && cached.ts && now - cached.ts < AT_MAX_AGE_MS) {
                 try {
-                    settings.hosts.goFile.token = cached.token;
-                } catch (e) {}
-                return cached.token;
-            }
+                    if (!force && settings && settings.hosts && settings.hosts.goFile && settings.hosts.goFile.token) {
+                        return settings.hosts.goFile.token;
+                    }
+                } catch (e) { }
 
-            try {
-                if (!force && settings && settings.hosts && settings.hosts.goFile && settings.hosts.goFile.token) {
-                    return settings.hosts.goFile.token;
+                const wt = await getWebsiteToken(false);
+                return await createAccountToken(wt);
+            };
+
+            const apiContentsRaw = async (contentId, passwordHash, wt, token) => {
+                let apiUrl = `https://api.gofile.io/contents/${encodeURIComponent(contentId)}`;
+                if (passwordHash) apiUrl += `?password=${encodeURIComponent(passwordHash)}`;
+
+                const { source } = await gmReq(
+                    'GET',
+                    apiUrl,
+                    null,
+                    {
+                        accept: 'application/json',
+                        authorization: `Bearer ${token}`,
+                        'x-website-token': wt,
+                    },
+                    'text',
+                );
+
+                return JSON.parse(source || '{}');
+            };
+
+            const apiContents = async (contentId, passwordHash) => {
+                let wt = await getWebsiteToken(false);
+                let token = await getAccountToken(false);
+
+                let json = await apiContentsRaw(contentId, passwordHash, wt, token);
+                if (json && json.status === 'ok') return json;
+
+                const s = String(json?.status || json?.message || '').toLowerCase();
+
+                if (s.includes('unauthorized') || s.includes('token') || s.includes('invalid')) {
+                    wt = await getWebsiteToken(true);
+                    token = await getAccountToken(true);
+                    json = await apiContentsRaw(contentId, passwordHash, wt, token);
+                    return json;
                 }
-            } catch (e) {}
 
-            const wt = await getWebsiteToken(false);
-            return await createAccountToken(wt);
-        };
-
-        const apiContentsRaw = async (contentId, passwordHash, wt, token) => {
-            let apiUrl = `https://api.gofile.io/contents/${encodeURIComponent(contentId)}`;
-            if (passwordHash) apiUrl += `?password=${encodeURIComponent(passwordHash)}`;
-
-            const { source } = await gmReq(
-                'GET',
-                apiUrl,
-                null,
-                {
-                    accept: 'application/json',
-                    authorization: `Bearer ${token}`,
-                    'x-website-token': wt,
-                },
-                'text',
-            );
-
-            return JSON.parse(source || '{}');
-        };
-
-        const apiContents = async (contentId, passwordHash) => {
-            let wt = await getWebsiteToken(false);
-            let token = await getAccountToken(false);
-
-            let json = await apiContentsRaw(contentId, passwordHash, wt, token);
-            if (json && json.status === 'ok') return json;
-
-            const s = String(json?.status || json?.message || '').toLowerCase();
-
-            if (s.includes('unauthorized') || s.includes('token') || s.includes('invalid')) {
-                wt = await getWebsiteToken(true);
-                token = await getAccountToken(true);
-                json = await apiContentsRaw(contentId, passwordHash, wt, token);
                 return json;
-            }
+            };
 
-            return json;
-        };
+            const resolveAlbum = async (urlOrId, spoilers) => {
+                const id = String(urlOrId).includes('gofile.io/d/') ? String(urlOrId).split('/').reverse()[0] : String(urlOrId);
 
-        const resolveAlbum = async (urlOrId, spoilers) => {
-            const id = String(urlOrId).includes('gofile.io/d/') ? String(urlOrId).split('/').reverse()[0] : String(urlOrId);
+                let props = await apiContents(id, null);
 
-            let props = await apiContents(id, null);
-
-            if (props && props.status === 'error-notFound') {
-                log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
+                if (props && props.status === 'error-notFound') {
+                    log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
                     return null;
                 }
 
-            if (props && props.status === 'error-notPublic') {
-                log.host.error(postId, `::Album not public::: ${urlOrId}`, 'gofile.io');
+                if (props && props.status === 'error-notPublic') {
+                    log.host.error(postId, `::Album not public::: ${urlOrId}`, 'gofile.io');
                     return null;
                 }
 
-            if (props && props.status === 'error-passwordRequired') {
-                log.host.info(postId, `::Album requires password::: ${urlOrId}`, 'gofile.io');
+                if (props && props.status === 'error-passwordRequired') {
+                    log.host.info(postId, `::Album requires password::: ${urlOrId}`, 'gofile.io');
 
-                if (!spoilers || !spoilers.length) {
-                    return props;
-                }
+                    if (!spoilers || !spoilers.length) {
+                        return props;
+                    }
 
-                        log.host.info(postId, `::Trying with ${spoilers.length} available password(s)::`, 'gofile.io');
+                    log.host.info(postId, `::Trying with ${spoilers.length} available password(s)::`, 'gofile.io');
 
                     for (const spoiler of spoilers) {
                         const hash = sha256(spoiler);
-                    const attempt = await apiContents(id, hash);
+                        const attempt = await apiContents(id, hash);
 
-                    if (attempt && attempt.status === 'ok') {
+                        if (attempt && attempt.status === 'ok') {
                             log.host.info(postId, `::Successfully authenticated with:: ${spoiler}`, 'gofile.io');
-                        props = attempt;
-                        break;
+                            props = attempt;
+                            break;
                         }
                     }
                 }
@@ -3142,12 +3139,12 @@ if (page === 1) {
 
             let folderName = h.basename(url);
 
-        if (!props || props.status !== 'ok' || !props.data) {
-            if (props && props.status === 'error-passwordRequired') {
-                log.host.error(postId, `::Password required (no valid password found)::: ${url}`, 'gofile.io');
-            } else {
-                log.host.error(postId, `::Unable to resolve album::: ${url}`, 'gofile.io');
-            }
+            if (!props || props.status !== 'ok' || !props.data) {
+                if (props && props.status === 'error-passwordRequired') {
+                    log.host.error(postId, `::Password required (no valid password found)::: ${url}`, 'gofile.io');
+                } else {
+                    log.host.error(postId, `::Unable to resolve album::: ${url}`, 'gofile.io');
+                }
 
                 return {
                     dom: null,
@@ -3166,41 +3163,41 @@ if (page === 1) {
 
                 const resolved = [];
 
-            folderName = props.data.name || folderName;
+                folderName = props.data.name || folderName;
 
                 const files = props.data.children;
 
                 for (const file in files) {
                     const obj = files[file];
 
-                if (!obj) continue;
+                    if (!obj) continue;
 
                     if (obj.type === 'file') {
-                    const fileId = obj.id || obj.code;
-                    const fileName = encodeURIComponent(obj.name || fileId || 'file');
+                        const fileId = obj.id || obj.code;
+                        const fileName = encodeURIComponent(obj.name || fileId || 'file');
 
-                    // Prefer direct/CDN links when available. Do NOT force /download/web/
-                    // (web flow can return album HTML).
-                    const candidates = [obj.directLink, obj.link, obj.downloadLink].filter(Boolean);
-                    let link =
-                        candidates.find(u => /\/download\/direct\//i.test(String(u))) ||
-                        candidates[0] ||
-                        (fileId ? `https://gofile.io/download/web/${fileId}/${fileName}` : null);
+                        // Prefer direct/CDN links when available. Do NOT force /download/web/
+                        // (web flow can return album HTML).
+                        const candidates = [obj.directLink, obj.link, obj.downloadLink].filter(Boolean);
+                        let link =
+                            candidates.find(u => /\/download\/direct\//i.test(String(u))) ||
+                            candidates[0] ||
+                            (fileId ? `https://gofile.io/download/web/${fileId}/${fileName}` : null);
 
-                    if (link) {
-                        // Preserve original GoFile filename (from API) so we don't rely on URL-encoded path segment.
-                        try {
-                            if (obj.name) {
-                                if (fileId) gofileNameById.set(String(fileId), String(obj.name));
-                                if (link) gofileNameByUrl.set(String(link), String(obj.name));
-                            }
-                        } catch (e) {}resolved.push(link);
-                    }
-                } else if (obj.type === 'folder') {
-                    const folderId = obj.id || obj.code;
-                    if (!folderId) continue;
+                        if (link) {
+                            // Preserve original GoFile filename (from API) so we don't rely on URL-encoded path segment.
+                            try {
+                                if (obj.name) {
+                                    if (fileId) gofileNameById.set(String(fileId), String(obj.name));
+                                    if (link) gofileNameByUrl.set(String(link), String(obj.name));
+                                }
+                            } catch (e) { } resolved.push(link);
+                        }
+                    } else if (obj.type === 'folder') {
+                        const folderId = obj.id || obj.code;
+                        if (!folderId) continue;
 
-                    const folderProps = await resolveAlbum(folderId, spoilers);
+                        const folderProps = await resolveAlbum(folderId, spoilers);
                         resolved.push(...(await getChildAlbums(folderProps, spoilers)));
                     }
                 }
@@ -3382,9 +3379,9 @@ if (page === 1) {
             const invalidSub = settings.naming.invalidCharSubstitute || '_';
 
             let safeTitle = rawTitle
-            .replace(/[\\/:*?"<>|]/g, invalidSub)
-            .replace(/\s+/g, ' ')
-            .trim();
+                .replace(/[\\/:*?"<>|]/g, invalidSub)
+                .replace(/\s+/g, ' ')
+                .trim();
 
             // Cap title to avoid extremely long Windows paths
             if (safeTitle.length > 120) safeTitle = safeTitle.slice(0, 120).trim();
@@ -3408,17 +3405,17 @@ if (page === 1) {
 
             // Collect video ids (and names) from the table rows (server-rendered HTML)
             let ids = Array.from(dom?.querySelectorAll('tr.file-row') || [])
-            .map(row => {
-                const a = row.querySelector('a[href^="/v/"]');
-                const id = (a?.getAttribute('href') || '').match(/\/v\/([^\/?#]+)/i)?.[1];
-                if (id) {
-                    const nm = row.getAttribute('data-name') || row.dataset?.name;
-                    if (nm) idToName.set(id, nm);
-                }
-                return id;
-            })
-            .filter(Boolean)
-            .unique();
+                .map(row => {
+                    const a = row.querySelector('a[href^="/v/"]');
+                    const id = (a?.getAttribute('href') || '').match(/\/v\/([^\/?#]+)/i)?.[1];
+                    if (id) {
+                        const nm = row.getAttribute('data-name') || row.dataset?.name;
+                        if (nm) idToName.set(id, nm);
+                    }
+                    return id;
+                })
+                .filter(Boolean)
+                .unique();
 
             // Fallback: regex scan (if DOM parsing fails)
             if (!ids.length && source) {
@@ -3435,19 +3432,19 @@ if (page === 1) {
                 let signed = null;
                 try {
                     signed = await xfpdTurboSignUrlWithTimeout(id, embedUrl, idToName.get(id));
-                } catch (e) {}
+                } catch (e) { }
 
-// Fallback: if signing fails, try to read media URL from the embed page
+                // Fallback: if signing fails, try to read media URL from the embed page
                 if (!signed) {
                     try {
                         const { dom: edom } = await http.get(embedUrl, {}, { Referer: embedUrl });
                         const src =
-                              edom?.querySelector('source[src]')?.getAttribute('src') ||
-                              edom?.querySelector('video[src]')?.getAttribute('src');
+                            edom?.querySelector('source[src]')?.getAttribute('src') ||
+                            edom?.querySelector('video[src]')?.getAttribute('src');
                         if (src) {
                             signed = new URL(src, embedUrl).toString();
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 // If we got a Turbo CDN URL and have an original name, attach fn=
@@ -3461,7 +3458,7 @@ if (page === 1) {
 
                 // If sign fails, keep a workable fallback
                 if (signed && id) {
-                    try { turboIdBySignedUrl.set(String(signed), String(id)); } catch (e) {}
+                    try { turboIdBySignedUrl.set(String(signed), String(id)); } catch (e) { }
                 }
                 resolved.push(signed || `https://turbo.cr/d/${id}`);
             }
@@ -3487,18 +3484,18 @@ if (page === 1) {
             try {
                 const signed = await xfpdTurboSignUrlWithTimeout(id, embedUrl, null);
                 if (signed) return signed;
-            } catch (e) {}
+            } catch (e) { }
 
-// Fallback: try to read <source>/<video> directly from the embed page
+            // Fallback: try to read <source>/<video> directly from the embed page
             try {
                 const { dom } = await http.get(embedUrl, {}, { Referer: embedUrl });
                 const src =
-                      dom?.querySelector('source[src]')?.getAttribute('src') ||
-                      dom?.querySelector('video[src]')?.getAttribute('src');
+                    dom?.querySelector('source[src]')?.getAttribute('src') ||
+                    dom?.querySelector('video[src]')?.getAttribute('src');
                 if (src) {
                     return new URL(src, embedUrl).toString();
                 }
-            } catch (e) {}
+            } catch (e) { }
 
             // Last fallback: the site's direct download route
             return `https://turbo.cr/d/${id}`;
@@ -3518,18 +3515,18 @@ if (page === 1) {
             try {
                 const signed = await xfpdTurboSignUrlWithTimeout(id, embedUrl, null);
                 if (signed) return signed;
-            } catch (e) {}
+            } catch (e) { }
 
-// Fallback: try to read <source> / <video> directly if present
+            // Fallback: try to read <source> / <video> directly if present
             try {
                 const { dom } = await http.get(embedUrl, {}, { Referer: embedUrl });
                 const src =
-                      dom?.querySelector('source[src]')?.getAttribute('src') ||
-                      dom?.querySelector('video[src]')?.getAttribute('src');
+                    dom?.querySelector('source[src]')?.getAttribute('src') ||
+                    dom?.querySelector('video[src]')?.getAttribute('src');
                 if (src) {
                     return new URL(src, embedUrl).toString();
                 }
-            } catch (e) {}
+            } catch (e) { }
 
             return null;
 
@@ -3559,7 +3556,7 @@ if (page === 1) {
                         }
                         return token || null;
                     }
-                } catch (e) {}
+                } catch (e) { }
                 return null;
             };
 
@@ -3685,13 +3682,13 @@ if (page === 1) {
             };
         },
     ],
-[
+    [
         [/redgifs\.com(\/|\\\/)(ifr|watch|gifs\/detail|gifs\/watch)/i],
         async (url, http) => {
             const raw = String(url || '');
             const idMatch =
-                  raw.match(/redgifs\.com(?:\/|\\\/)(?:ifr(?:\/|\\\/)|watch(?:\/|\\\/)|gifs(?:\/|\\\/)detail(?:\/|\\\/))?([a-z0-9_-]+)/i) ||
-                  raw.match(/\/([a-z0-9_-]+)(?:\?.*)?$/i);
+                raw.match(/redgifs\.com(?:\/|\\\/)(?:ifr(?:\/|\\\/)|watch(?:\/|\\\/)|gifs(?:\/|\\\/)detail(?:\/|\\\/))?([a-z0-9_-]+)/i) ||
+                raw.match(/\/([a-z0-9_-]+)(?:\?.*)?$/i);
             const id = (idMatch && idMatch[1] ? String(idMatch[1]) : '').match(/[a-z0-9_-]+/i)?.[0];
 
             if (!id) {
@@ -3708,7 +3705,7 @@ if (page === 1) {
                         }
                         return token || null;
                     }
-                } catch (e) {}
+                } catch (e) { }
                 return null;
             };
 
@@ -3789,7 +3786,7 @@ if (page === 1) {
 
                 const pageUrl = url;
                 let pageOrigin = 'https://cyberdrop.cr';
-                try { pageOrigin = new URL(pageUrl).origin; } catch (e) {}
+                try { pageOrigin = new URL(pageUrl).origin; } catch (e) { }
 
                 const decodeHtml = (s) => {
                     try {
@@ -3841,7 +3838,7 @@ if (page === 1) {
 
                 const pickTitle = (src) => {
                     const m1 = src.match(/property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
-                               src.match(/content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+                        src.match(/content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
                     const m2 = src.match(/<h1[^>]*>([^<]+)<\/h1>/i);
                     const m3 = src.match(/<title[^>]*>([^<]+)<\/title>/i);
                     let t = (m1 && (m1[1] || m1[2])) || (m2 && m2[1]) || (m3 && m3[1]) || '';
@@ -4094,7 +4091,7 @@ if (page === 1) {
                                     }
                                     // plain hostname
                                     if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(t)) return `https://${t}`;
-                                } catch (e) {}
+                                } catch (e) { }
                                 return null;
                             };
 
@@ -4201,7 +4198,7 @@ if (page === 1) {
                                 const base = out.base || apiBase;
                                 out.direct = `${base.replace(/\/$/, '')}/api/file/d/${slug}?token=${tok}`;
                             }
-                        } catch (e) {}
+                        } catch (e) { }
 
                         // Normalize escaped slashes if needed
                         if (out.direct && typeof out.direct === 'string' && out.direct.includes('\\/')) {
@@ -4234,7 +4231,7 @@ if (page === 1) {
                             if (status !== 200 || !source) continue;
 
                             let baseHint = apiBaseDefault;
-                            try { baseHint = new URL(apiUrl).origin; } catch (e) {}
+                            try { baseHint = new URL(apiUrl).origin; } catch (e) { }
                             const { direct, name, auth } = parseInfoText(source, baseHint);
 
                             let resolvedName = name || null;
@@ -4247,12 +4244,12 @@ if (page === 1) {
                                     const { source: authSource, status: authStatus } = await cyberdropFetchText(authUrl);
                                     if (authStatus === 200 && authSource) {
                                         let authBase = baseHint;
-                                        try { authBase = new URL(authUrl).origin; } catch (e) {}
+                                        try { authBase = new URL(authUrl).origin; } catch (e) { }
                                         const parsedAuth = parseInfoText(authSource, authBase);
                                         if (!resolvedName && parsedAuth && parsedAuth.name) resolvedName = parsedAuth.name;
                                         if (!resolvedDirect && parsedAuth && parsedAuth.direct) resolvedDirect = parsedAuth.direct;
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
                             }
 
                             if (resolvedName) cyberdropNameBySlug.set(String(slug), String(resolvedName));
@@ -4261,7 +4258,7 @@ if (page === 1) {
                                 if (resolvedName) cyberdropNameByUrl.set(String(resolvedDirect), String(resolvedName));
                                 return resolvedDirect;
                             }
-                        } catch (e) {}
+                        } catch (e) { }
                     }
                     return null;
                 };
@@ -4284,7 +4281,7 @@ if (page === 1) {
             }
         },
     ],
-[
+    [
         [/noodlemagazine.com\/watch\//],
         async (url, http) => {
             const { dom } = await http.get(url);
@@ -4367,15 +4364,15 @@ if (page === 1) {
         },
     ],
 
-[[/images\d.imagebam.com/], url => url],
+    [[/images\d.imagebam.com/], url => url],
     [[/imgvb.com\/images\//, /:!imgvb.com\/album\//], url => url.replace('.th.', '.').replace('.md.', '.')],
     [
         [/imgvb.com\/album\//],
         async (url, http) => {
             const { source, dom } = await http.get(url);
             const resolved = [...dom.querySelectorAll('.image-container > img')]
-            .map(i => i.getAttribute('src'))
-            .map(url => url.replace('.th.', '.').replace('.md.', '.'));
+                .map(i => i.getAttribute('src'))
+                .map(url => url.replace('.th.', '.').replace('.md.', '.'));
 
             return {
                 dom,
@@ -4414,8 +4411,8 @@ if (page === 1) {
             const { source, dom } = await http.get(url);
 
             const resolved = [...dom?.querySelectorAll('#gallery-view-content > a > img')]
-            .map(img => img.getAttribute('src'))
-            .map(url => url.replace(/(thumbs|t)(\d+)\./gis, 'images$2.').replace('_b.', '_o.'));
+                .map(img => img.getAttribute('src'))
+                .map(url => url.replace(/(thumbs|t)(\d+)\./gis, 'images$2.').replace('_b.', '_o.'));
 
             return {
                 dom,
@@ -4426,713 +4423,894 @@ if (page === 1) {
         },
     ],
 
-[
-    [/filester\.me\/f\//],
-    async (url, http, spoilers, postId, postSettings, progressCB) => {
-        try {
-            url = String(url || '').trim();
-            if (!url) return null;
+    [
+        [/filester\.me\/f\//],
+        async (url, http, spoilers, postId, postSettings, progressCB) => {
+            try {
+                url = String(url || '').trim();
+                if (!url) return null;
 
-            if (url.startsWith('//')) url = 'https:' + url;
-            if (!/^https?:\/\//i.test(url)) url = 'https://' + url.replace(/^\/+/, '');
+                if (url.startsWith('//')) url = 'https:' + url;
+                if (!/^https?:\/\//i.test(url)) url = 'https://' + url.replace(/^\/+/, '');
 
-            const u0 = new URL(url);
-            const origin = `${u0.protocol}//${u0.hostname}`;
+                const u0 = new URL(url);
+                const origin = `${u0.protocol}//${u0.hostname}`;
 
-            const mId = (u0.pathname || '').match(/\/f\/([^\/?#]+)/i);
-            if (!mId || !mId[1]) return url;
+                const mId = (u0.pathname || '').match(/\/f\/([^\/?#]+)/i);
+                if (!mId || !mId[1]) return url;
 
-            const albumId = mId[1];
-            const baseUrl = `${origin}/f/${albumId}`;
+                const albumId = mId[1];
+                const baseUrl = `${origin}/f/${albumId}`;
 
-            const resolved = [];
-            const seen = new Set();
+                const resolved = [];
+                const seen = new Set();
 
-            let firstDom = null;
-            let firstSource = '';
-            let folderName = '';
+                let firstDom = null;
+                let firstSource = '';
+                let folderName = '';
 
-            const MAX_PAGES = 500;
+                const MAX_PAGES = 500;
 
-            const getFolderName = (dom, html) => {
-                try {
-                    const pickClean = (s) => {
-                        s = String(s || '').trim();
-                        if (!s) return '';
-
-                        // Strip common suffixes.
-                        s = s.replace(/\s*\|\s*filester\.me\s*$/i, '').trim();
-                        s = s.replace(/\s*-\s*filester\.me\s*$/i, '').trim();
-
-                        // Replace remaining pipes with a Windows-safe separator.
-                        if (s.includes('|')) s = s.replace(/\s*\|\s*/g, ' - ').trim();
-
-                        // Final cleanup
-                        s = s.replace(/\s+/g, ' ').trim();
-
-                        return s;
-                    };
-
-                    const isBad = (t) => {
-                        const x = String(t || '').trim();
-                        if (!x) return true;
-                        if (/^filester\.me\b/i.test(x)) return true;
-                        if (/BETA\s*\d/i.test(x)) return true;
-                        return false;
-                    };
-
-                    let t = '';
-
-                    // DOM: og:title first
+                const getFolderName = (dom, html) => {
                     try {
-                        t = pickClean(dom?.querySelector('meta[property="og:title"]')?.getAttribute('content') || '');
-                    } catch (e) {}
-                    try {
-                        if (!t) t = pickClean(dom?.querySelector('meta[name="og:title"]')?.getAttribute('content') || '');
-                    } catch (e) {}
-                    try {
-                        if (!t) t = pickClean(dom?.querySelector('title')?.textContent || '');
-                    } catch (e) {}
+                        const pickClean = (s) => {
+                            s = String(s || '').trim();
+                            if (!s) return '';
 
-                    // HTML fallback (order-independent meta parsing)
-                    if (isBad(t)) {
+                            // Strip common suffixes.
+                            s = s.replace(/\s*\|\s*filester\.me\s*$/i, '').trim();
+                            s = s.replace(/\s*-\s*filester\.me\s*$/i, '').trim();
+
+                            // Replace remaining pipes with a Windows-safe separator.
+                            if (s.includes('|')) s = s.replace(/\s*\|\s*/g, ' - ').trim();
+
+                            // Final cleanup
+                            s = s.replace(/\s+/g, ' ').trim();
+
+                            return s;
+                        };
+
+                        const isBad = (t) => {
+                            const x = String(t || '').trim();
+                            if (!x) return true;
+                            if (/^filester\.me\b/i.test(x)) return true;
+                            if (/BETA\s*\d/i.test(x)) return true;
+                            return false;
+                        };
+
+                        let t = '';
+
+                        // DOM: og:title first
+                        try {
+                            t = pickClean(dom?.querySelector('meta[property="og:title"]')?.getAttribute('content') || '');
+                        } catch (e) { }
+                        try {
+                            if (!t) t = pickClean(dom?.querySelector('meta[name="og:title"]')?.getAttribute('content') || '');
+                        } catch (e) { }
+                        try {
+                            if (!t) t = pickClean(dom?.querySelector('title')?.textContent || '');
+                        } catch (e) { }
+
+                        // HTML fallback (order-independent meta parsing)
+                        if (isBad(t)) {
+                            const s = String(html || '');
+                            if (s) {
+                                try {
+                                    const mTag =
+                                        /<meta\b[^>]*\b(?:property|name)=["']og:title["'][^>]*>/i.exec(s) ||
+                                        /<meta\b[^>]*\bcontent=["'][^"']+["'][^>]*\b(?:property|name)=["']og:title["'][^>]*>/i.exec(s);
+                                    if (mTag && mTag[0]) {
+                                        const mC = /\bcontent=["']([^"']+)["']/i.exec(mTag[0]);
+                                        if (mC && mC[1]) t = pickClean(mC[1]);
+                                    }
+                                } catch (e) { }
+
+                                try {
+                                    if (isBad(t)) {
+                                        const mT = /<title[^>]*>\s*([^<]+?)\s*<\/title>/i.exec(s);
+                                        if (mT && mT[1]) t = pickClean(mT[1]);
+                                    }
+                                } catch (e) { }
+                            }
+                        }
+
+                        if (isBad(t)) return albumId;
+                        return t;
+                    } catch (e) { }
+                    return albumId;
+                };
+
+                const addHint = (slug, name, sizeBytes) => {
+                    try {
+                        const dUrl = `${origin}/d/${slug}`;
+                        if (name) {
+                            try { filesterNameBySlug.set(String(slug), String(name)); } catch (e) { }
+                            try { filesterNameByUrl.set(String(dUrl), String(name)); } catch (e) { }
+                        }
+                        if (sizeBytes) {
+                            try { filesterSizeBySlug.set(String(slug), Number(sizeBytes)); } catch (e) { }
+                            try { filesterSizeByUrl.set(String(dUrl), Number(sizeBytes)); } catch (e) { }
+                        }
+                        try { filesterSlugByUrl.set(String(dUrl), String(slug)); } catch (e) { }
+                    } catch (e) { }
+                };
+
+                const parsePage = (dom, html) => {
+                    const out = [];
+                    try {
+                        const items = dom ? [...dom.querySelectorAll('div.file-item')] : [];
+                        for (const el of items) {
+                            let slug = '';
+                            try {
+                                const oc = String(el.getAttribute('onclick') || '');
+                                const m = /\/d\/([^'"?\s]+)/i.exec(oc);
+                                if (m && m[1]) slug = m[1];
+                            } catch (e) { }
+
+                            if (!slug) {
+                                try {
+                                    const btn = el.querySelector('button.download-btn');
+                                    const oc2 = String(btn?.getAttribute?.('onclick') || '');
+                                    const m2 = /downloadFile\(\s*'([^']+)'/i.exec(oc2);
+                                    if (m2 && m2[1]) slug = m2[1];
+                                } catch (e) { }
+                            }
+
+                            if (!slug) {
+                                try {
+                                    const a = el.querySelector('a[href*="/d/"]');
+                                    const href = String(a?.getAttribute?.('href') || '');
+                                    const m3 = /\/d\/([^\/?#]+)/i.exec(href);
+                                    if (m3 && m3[1]) slug = m3[1];
+                                } catch (e) { }
+                            }
+
+                            if (!slug) continue;
+
+                            let name = '';
+                            let size = 0;
+
+                            try { name = String(el.getAttribute('data-name') || '').trim(); } catch (e) { }
+                            if (!name) {
+                                try { name = String(el.querySelector('.file-name')?.textContent || '').trim(); } catch (e) { }
+                            }
+
+                            try { size = Number(el.getAttribute('data-size') || 0) || 0; } catch (e) { }
+
+                            out.push({ slug, name, size });
+                        }
+                    } catch (e) { }
+
+                    // Regex fallback if DOM parsing is incomplete
+                    try {
                         const s = String(html || '');
                         if (s) {
-                            try {
-                                const mTag =
-                                    /<meta\b[^>]*\b(?:property|name)=["']og:title["'][^>]*>/i.exec(s) ||
-                                    /<meta\b[^>]*\bcontent=["'][^"']+["'][^>]*\b(?:property|name)=["']og:title["'][^>]*>/i.exec(s);
-                                if (mTag && mTag[0]) {
-                                    const mC = /\bcontent=["']([^"']+)["']/i.exec(mTag[0]);
-                                    if (mC && mC[1]) t = pickClean(mC[1]);
-                                }
-                            } catch (e) {}
-
-                            try {
-                                if (isBad(t)) {
-                                    const mT = /<title[^>]*>\s*([^<]+?)\s*<\/title>/i.exec(s);
-                                    if (mT && mT[1]) t = pickClean(mT[1]);
-                                }
-                            } catch (e) {}
+                            const rx = /data-name="([^"]+)"[^>]*\bonclick="window\.location\.href='\/d\/([^']+)'/gi;
+                            let m;
+                            while ((m = rx.exec(s)) !== null) {
+                                const name = String(m[1] || '').trim();
+                                const slug = String(m[2] || '').trim();
+                                if (!slug) continue;
+                                out.push({ slug, name, size: 0 });
+                            }
                         }
+                    } catch (e) { }
+
+                    return out;
+                };
+
+                for (let page = 1; page <= MAX_PAGES; page++) {
+                    const u = new URL(baseUrl);
+                    u.searchParams.set('page', String(page));
+                    const pageUrl = u.toString();
+
+                    if (typeof progressCB === 'function') {
+                        progressCB(`[Filester] Resolving album page ${page}`);
                     }
 
-                    if (isBad(t)) return albumId;
-                    return t;
-                } catch (e) {}
-                return albumId;
+                    let dom = null;
+                    let source = '';
+                    try {
+                        const r = await http.get(pageUrl, {}, {
+                            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            Referer: baseUrl,
+                            __xfpd_withCredentials: true,
+                        });
+                        dom = r?.dom;
+                        source = r?.source || '';
+                    } catch (e) {
+                        break;
+                    }
+
+                    if (page === 1) {
+                        firstDom = dom;
+                        firstSource = source;
+                        folderName = getFolderName(dom, source);
+                    }
+
+                    const before = seen.size;
+
+                    const entries = parsePage(dom, source);
+                    for (const it of entries) {
+                        const slug = String(it.slug || '').trim();
+                        if (!slug || seen.has(slug)) continue;
+                        seen.add(slug);
+
+                        const name = String(it.name || '').trim();
+                        const size = Number(it.size || 0) || 0;
+                        addHint(slug, name, size);
+
+                        resolved.push(`${origin}/d/${slug}`);
+                    }
+
+                    const added = seen.size - before;
+                    if (added <= 0) break;
+                }
+
+                if (!folderName) folderName = albumId;
+
+                if (!resolved.length) return url;
+
+                return { dom: firstDom, source: firstSource, folderName, resolved };
+            } catch (e) {
+                return url;
+            }
+        },
+    ],
+    [
+        [/filester\.me\/d\//],
+        async (url, http, spoilers, postId, postSettings, progressCB) => {
+            const slug = (() => {
+                try {
+                    const u = new URL(url);
+                    const parts = String(u.pathname || '').split('/').filter(Boolean);
+                    return parts.length ? parts[parts.length - 1] : '';
+                } catch (e) {
+                    const m = /filester\.me\/d\/([^\/?#]+)/i.exec(String(url || ''));
+                    return m && m[1] ? m[1] : '';
+                }
+            })();
+
+            if (!slug) return null;
+
+            const apiBase = 'https://filester.me';
+
+            const mkHeaders = () => ({
+                Accept: 'application/json, text/plain, */*',
+                'Content-Type': 'application/json;charset=UTF-8',
+                Origin: apiBase,
+                Referer: url,
+                __xfpd_withCredentials: true,
+            });
+
+            const safeJson = (txt) => {
+                try { return JSON.parse(String(txt || '')); } catch (e) { return null; }
             };
 
-            const addHint = (slug, name, sizeBytes) => {
-                try {
-                    const dUrl = `${origin}/d/${slug}`;
-                    if (name) {
-                        try { filesterNameBySlug.set(String(slug), String(name)); } catch (e) {}
-                        try { filesterNameByUrl.set(String(dUrl), String(name)); } catch (e) {}
+            const walk = (obj, cb, maxNodes = 5000) => {
+                const seen = new Set();
+                const q = [obj];
+                let nodes = 0;
+                while (q.length && nodes++ < maxNodes) {
+                    const cur = q.shift();
+                    if (!cur || typeof cur !== 'object') continue;
+                    if (seen.has(cur)) continue;
+                    seen.add(cur);
+                    try {
+                        if (cb(cur) === true) return true;
+                    } catch (e) { }
+                    if (Array.isArray(cur)) {
+                        for (const it of cur) q.push(it);
+                    } else {
+                        for (const k of Object.keys(cur)) q.push(cur[k]);
                     }
-                    if (sizeBytes) {
-                        try { filesterSizeBySlug.set(String(slug), Number(sizeBytes)); } catch (e) {}
-                        try { filesterSizeByUrl.set(String(dUrl), Number(sizeBytes)); } catch (e) {}
-                    }
-                    try { filesterSlugByUrl.set(String(dUrl), String(slug)); } catch (e) {}
-                } catch (e) {}
+                }
+                return false;
             };
 
-            const parsePage = (dom, html) => {
-                const out = [];
-                try {
-                    const items = dom ? [...dom.querySelectorAll('div.file-item')] : [];
-                    for (const el of items) {
-                        let slug = '';
-                        try {
-                            const oc = String(el.getAttribute('onclick') || '');
-                            const m = /\/d\/([^'"?\s]+)/i.exec(oc);
-                            if (m && m[1]) slug = m[1];
-                        } catch (e) {}
-
-                        if (!slug) {
-                            try {
-                                const btn = el.querySelector('button.download-btn');
-                                const oc2 = String(btn?.getAttribute?.('onclick') || '');
-                                const m2 = /downloadFile\(\s*'([^']+)'/i.exec(oc2);
-                                if (m2 && m2[1]) slug = m2[1];
-                            } catch (e) {}
-                        }
-
-                        if (!slug) {
-                            try {
-                                const a = el.querySelector('a[href*="/d/"]');
-                                const href = String(a?.getAttribute?.('href') || '');
-                                const m3 = /\/d\/([^\/?#]+)/i.exec(href);
-                                if (m3 && m3[1]) slug = m3[1];
-                            } catch (e) {}
-                        }
-
-                        if (!slug) continue;
-
-                        let name = '';
-                        let size = 0;
-
-                        try { name = String(el.getAttribute('data-name') || '').trim(); } catch (e) {}
-                        if (!name) {
-                            try { name = String(el.querySelector('.file-name')?.textContent || '').trim(); } catch (e) {}
-                        }
-
-                        try { size = Number(el.getAttribute('data-size') || 0) || 0; } catch (e) {}
-
-                        out.push({ slug, name, size });
-                    }
-                } catch (e) {}
-
-                // Regex fallback if DOM parsing is incomplete
-                try {
-                    const s = String(html || '');
-                    if (s) {
-                        const rx = /data-name="([^"]+)"[^>]*\bonclick="window\.location\.href='\/d\/([^']+)'/gi;
-                        let m;
-                        while ((m = rx.exec(s)) !== null) {
-                            const name = String(m[1] || '').trim();
-                            const slug = String(m[2] || '').trim();
-                            if (!slug) continue;
-                            out.push({ slug, name, size: 0 });
+            const deepFindValueByKeys = (obj, keys) => {
+                const keySet = new Set((keys || []).map(k => String(k).toLowerCase()));
+                let out = null;
+                walk(obj, (o) => {
+                    if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+                    for (const k of Object.keys(o)) {
+                        if (keySet.has(String(k).toLowerCase())) {
+                            const v = o[k];
+                            if (v !== null && v !== undefined) {
+                                out = v;
+                                return true;
+                            }
                         }
                     }
-                } catch (e) {}
-
+                    return false;
+                });
                 return out;
             };
 
-            for (let page = 1; page <= MAX_PAGES; page++) {
-                const u = new URL(baseUrl);
-                u.searchParams.set('page', String(page));
-                const pageUrl = u.toString();
-
-                if (typeof progressCB === 'function') {
-                    progressCB(`[Filester] Resolving album page ${page}`);
+            const normalizeUrl = (s) => {
+                if (!s || typeof s !== 'string') return null;
+                const t = s.trim();
+                if (/^https?:\/\//i.test(t)) return t;
+                if (t.startsWith('/')) {
+                    try { return new URL(t, apiBase).href; } catch (e) { return null; }
                 }
-
-                let dom = null;
-                let source = '';
-                try {
-                    const r = await http.get(pageUrl, {}, {
-                    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    Referer: baseUrl,
-                    __xfpd_withCredentials: true,
-                });
-                    dom = r?.dom;
-                    source = r?.source || '';
-                } catch (e) {
-                    break;
+                if (/^[dv]\//i.test(t)) {
+                    try { return new URL('/' + t.replace(/^\/+/, ''), apiBase).href; } catch (e) { return null; }
                 }
-
-                if (page === 1) {
-                    firstDom = dom;
-                    firstSource = source;
-                    folderName = getFolderName(dom, source);
-                }
-
-                const before = seen.size;
-
-                const entries = parsePage(dom, source);
-                for (const it of entries) {
-                    const slug = String(it.slug || '').trim();
-                    if (!slug || seen.has(slug)) continue;
-                    seen.add(slug);
-
-                    const name = String(it.name || '').trim();
-                    const size = Number(it.size || 0) || 0;
-                    addHint(slug, name, size);
-
-                    resolved.push(`${origin}/d/${slug}`);
-                }
-
-                const added = seen.size - before;
-                if (added <= 0) break;
-            }
-
-            if (!folderName) folderName = albumId;
-
-            if (!resolved.length) return url;
-
-            return { dom: firstDom, source: firstSource, folderName, resolved };
-        } catch (e) {
-            return url;
-        }
-    },
-],
-[
-    [/filester\.me\/d\//],
-    async (url, http, spoilers, postId, postSettings, progressCB) => {
-        const slug = (() => {
-            try {
-                const u = new URL(url);
-                const parts = String(u.pathname || '').split('/').filter(Boolean);
-                return parts.length ? parts[parts.length - 1] : '';
-            } catch (e) {
-                const m = /filester\.me\/d\/([^\/?#]+)/i.exec(String(url || ''));
-                return m && m[1] ? m[1] : '';
-            }
-        })();
-
-        if (!slug) return null;
-
-        const apiBase = 'https://filester.me';
-
-        const mkHeaders = () => ({
-            Accept: 'application/json, text/plain, */*',
-            'Content-Type': 'application/json;charset=UTF-8',
-            Origin: apiBase,
-            Referer: url,
-            __xfpd_withCredentials: true,
-        });
-
-        const safeJson = (txt) => {
-            try { return JSON.parse(String(txt || '')); } catch (e) { return null; }
-        };
-
-        const walk = (obj, cb, maxNodes = 5000) => {
-            const seen = new Set();
-            const q = [obj];
-            let nodes = 0;
-            while (q.length && nodes++ < maxNodes) {
-                const cur = q.shift();
-                if (!cur || typeof cur !== 'object') continue;
-                if (seen.has(cur)) continue;
-                seen.add(cur);
-                try {
-                    if (cb(cur) === true) return true;
-                } catch (e) {}
-                if (Array.isArray(cur)) {
-                    for (const it of cur) q.push(it);
-                } else {
-                    for (const k of Object.keys(cur)) q.push(cur[k]);
-                }
-            }
-            return false;
-        };
-
-        const deepFindValueByKeys = (obj, keys) => {
-            const keySet = new Set((keys || []).map(k => String(k).toLowerCase()));
-            let out = null;
-            walk(obj, (o) => {
-                if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
-                for (const k of Object.keys(o)) {
-                    if (keySet.has(String(k).toLowerCase())) {
-                        const v = o[k];
-                        if (v !== null && v !== undefined) {
-                            out = v;
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            });
-            return out;
-        };
-
-        const normalizeUrl = (s) => {
-            if (!s || typeof s !== 'string') return null;
-            const t = s.trim();
-            if (/^https?:\/\//i.test(t)) return t;
-            if (t.startsWith('/')) {
-                try { return new URL(t, apiBase).href; } catch (e) { return null; }
-            }
-            if (/^[dv]\//i.test(t)) {
-                try { return new URL('/' + t.replace(/^\/+/, ''), apiBase).href; } catch (e) { return null; }
-            }
-            return null;
-        };
-
-        const pickBestUrl = (obj) => {
-            const candidates = [];
-            const push = (v) => {
-                const u = normalizeUrl(v);
-                if (u) candidates.push(u);
+                return null;
             };
 
-            const prefer = deepFindValueByKeys(obj, ['download_url', 'downloadUrl', 'url', 'link', 'href', 'direct', 'download', 'view_url', 'viewUrl']);
-            if (prefer) push(prefer);
-
-            walk(obj, (o) => {
-                for (const k of Object.keys(o || {})) {
-                    const v = o[k];
-                    if (typeof v === 'string') push(v);
-                }
-                if (Array.isArray(o)) {
-                    for (const it of o) if (typeof it === 'string') push(it);
-                }
-                return false;
-            });
-
-            const clean = candidates
-                .map(s => String(s))
-                .filter(s => !/filester\.me\/api\//i.test(s))
-                .filter(s => !/filester\.me\/(css|js)\//i.test(s));
-
-            if (!clean.length) return null;
-
-            const score = (s) => {
-                let sc = 0;
-                // Strongly prefer CDN /v/ stream URLs.
-                if (/https?:\/\/cache\d+\.filester\.me\/v\//i.test(s)) sc += 200;
-                else if (/cache\d+\.filester\.me/i.test(s)) sc += 160;
-                if (/\/v\//i.test(s)) sc += 80;
-                if (/\.filester\.me\//i.test(s)) sc += 10;
-                // De-prioritize HTML view tokens (/d/).
-                if (/\/d\//i.test(s)) sc -= 25;
-                if (/\.mp4(\?|$)/i.test(s)) sc += 2;
-                return sc;
-            };
-
-            clean.sort((a, b) => score(b) - score(a));
-            return clean[0];
-        };
-
-        const pickName = (obj) => {
-            const v = deepFindValueByKeys(obj, ['filename', 'file_name', 'name', 'original_name', 'originalName', 'title']);
-            if (typeof v === 'string' && v.trim()) return v.trim();
-            return null;
-        };
-
-        const pickSize = (obj) => {
-            const v = deepFindValueByKeys(obj, ['size', 'bytes', 'file_size', 'fileSize', 'length']);
-            const n = Number(v);
-            return Number.isFinite(n) ? n : 0;
-        };
-
-        let nameHint = null;
-        let sizeHint = 0;
-        let relViewPath = null;
-        let streamUrlImmediate = null;
-
-        const filesterExtFromCt = (ct) => {
-            const t = String(ct || '').toLowerCase();
-            if (t.includes('video/mp4')) return 'mp4';
-            if (t.includes('video/webm')) return 'webm';
-            if (t.includes('image/jpeg') || t.includes('image/jpg')) return 'jpg';
-            if (t.includes('image/png')) return 'png';
-            if (t.includes('image/gif')) return 'gif';
-            if (t.includes('application/zip')) return 'zip';
-            if (t.includes('application/x-7z-compressed')) return '7z';
-            if (t.includes('application/x-rar') || t.includes('application/vnd.rar')) return 'rar';
-            return 'bin';
-        };
-
-        const filesterParseViewMeta = (html) => {
-            const out = { fileName: '', fileType: '' };
-            const s = String(html || '');
-            try {
-                // Prefer JSON-style double-quoted assignment: window.fileName = "..."
-                const m1 = /window\.fileName\s*=\s*("([^"\\]|\\.)*")\s*;?/m.exec(s);
-                if (m1 && m1[1]) out.fileName = JSON.parse(m1[1]);
-            } catch (e) {}
-            try {
-                // Fallback: single-quoted assignment: window.fileName = '...'
-                if (!out.fileName) {
-                    const m1b = /window\.fileName\s*=\s*'([^'\\]*(?:\\.[^'\\]*)*)'\s*;?/m.exec(s);
-                    if (m1b && m1b[1]) out.fileName = String(m1b[1]).replace(/\\'/g, "'").replace(/\\n/g, "\n");
-                }
-            } catch (e) {}
-            try {
-                const m2 = /window\.fileType\s*=\s*("([^"\\]|\\.)*")\s*;?/m.exec(s);
-                if (m2 && m2[1]) out.fileType = JSON.parse(m2[1]);
-            } catch (e) {}
-            try {
-                if (!out.fileType) {
-                    const m2b = /window\.fileType\s*=\s*'([^'\\]*(?:\\.[^'\\]*)*)'\s*;?/m.exec(s);
-                    if (m2b && m2b[1]) out.fileType = String(m2b[1]).replace(/\\'/g, "'").replace(/\\n/g, "\n");
-                }
-            } catch (e) {}
-            return out;
-        };
-
-
-
-        const filesterNormalizeFilename = (s) => {
-            let name = String(s || '').trim();
-            if (!name) return '';
-
-            // If UTF-8 bytes were interpreted as Latin-1 (common in Chrome/Tampermonkey),
-            // decode it back to proper UTF-8.
-            try {
-                let hasHigh = false;
-                let allByte = true;
-                for (let i = 0; i < name.length; i++) {
-                    const c = name.charCodeAt(i);
-                    if (c > 255) { allByte = false; break; }
-                    if (c >= 128) hasHigh = true;
-                }
-                if (allByte && hasHigh && typeof TextDecoder !== 'undefined') {
-                    const bytes = new Uint8Array(name.length);
-                    for (let i = 0; i < name.length; i++) bytes[i] = name.charCodeAt(i) & 0xFF;
-                    const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
-                    if (decoded && decoded !== name) name = decoded;
-                }
-            } catch (e) {}
-
-            // Strip control chars (Windows will refuse these in filenames; mojibake often introduces them)
-            name = name.replace(/[\u0000-\u001F\u007F\u0080-\u009F]/g, '').trim();
-            return name;
-        };
-
-const filesterParseDispositionFilename = (headersRaw) => {
-            try {
-                const h = String(headersRaw || '');
-                const mLine = /content-disposition:\s*([^\r\n]+)/i.exec(h);
-                if (!mLine || !mLine[1]) return '';
-                const v = String(mLine[1] || '');
-
-                // RFC5987: filename*=UTF-8''...
-                let m = /filename\*\s*=\s*([^;]+)/i.exec(v);
-                if (m && m[1]) {
-                    let val = String(m[1]).trim();
-                    val = val.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
-
-                    const mEnc = /^([^']*)''(.*)$/.exec(val);
-                    if (mEnc) {
-                        let data = String(mEnc[2] || '').trim();
-                        try {
-                            data = decodeURIComponent(data.replace(/\+/g, '%20'));
-                        } catch (e) {
-                            // best-effort
-                        }
-                        if (data) return filesterNormalizeFilename(data);
-                    } else {
-                        try {
-                            const decoded = decodeURIComponent(val.replace(/\+/g, '%20'));
-                            if (decoded) return filesterNormalizeFilename(decoded);
-                        } catch (e) {}
-                        if (val) return filesterNormalizeFilename(val);
-                    }
-                }
-
-                // Basic: filename="..."
-                m = /filename\s*=\s*([^;]+)/i.exec(v);
-                if (m && m[1]) {
-                    let val = String(m[1]).trim();
-                    val = val.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
-                    val = val.replace(/\\(.)/g, '$1');
-                    return filesterNormalizeFilename(val);
-                }
-            } catch (e) {}
-            return '';
-        };
-
-
-
-        const filesterProbe = async (probeUrl) => {
-            try {
-                const r = await http.base(
-                    'GET',
-                    probeUrl,
-                    { onResponseHeadersReceieved: () => {} },
-                    { Range: 'bytes=0-0', Referer: `${apiBase}/`, __xfpd_withCredentials: true },
-                    null,
-                    'text',
-                );
-                const status = Number(r && r.status) || 0;
-                const headers = String((r && r.responseHeaders) || '');
-                const dispName = filesterParseDispositionFilename(headers);
-                const mCt = /content-type:\s*([^\r\n]+)/i.exec(headers);
-                const ct = (mCt && mCt[1]) ? mCt[1].trim() : '';
-                const mCr = /content-range:\s*bytes\s+\d+-\d+\/(\d+)/i.exec(headers);
-                const mCl = /content-length:\s*(\d+)/i.exec(headers);
-                const size = mCr && mCr[1] ? Number(mCr[1]) : (mCl && mCl[1] ? Number(mCl[1]) : 0);
-                const isHtmlOrJson = /text\/html|application\/xhtml\+xml|application\/json/i.test(ct);
-                const ok = status >= 200 && status < 400 && !isHtmlOrJson;
-                return { ok, status, headers, contentType: ct, size: Number.isFinite(size) ? size : 0, fileName: dispName || '' };
-            } catch (e) {
-                return { ok: false, status: 0, headers: '', contentType: '', size: 0 };
-            }
-        };
-
-        const filesterResolveDownloadToken = async (tokenUrl) => {
-            try {
-                const ref = `${apiBase}/d/${slug}`;
-
-                const normalizeMaybeUrl = (v) => {
-                    try {
-                        if (!v) return '';
-                        const s = String(v).trim();
-                        if (!s) return '';
-                        if (s.startsWith('/')) return new URL(s, apiBase).href;
-                        if (/^https?:\/\//i.test(s)) return s;
-                        return '';
-                    } catch (e) {
-                        return '';
-                    }
+            const pickBestUrl = (obj) => {
+                const candidates = [];
+                const push = (v) => {
+                    const u = normalizeUrl(v);
+                    if (u) candidates.push(u);
                 };
 
-                // Phase 1: range request (follows redirects) to capture finalUrl without downloading the whole file.
-                const r1 = await http.base(
-                    'GET',
-                    tokenUrl,
-                    {},
-                    { Range: 'bytes=0-0', Referer: ref, __xfpd_withCredentials: true },
-                    null,
-                    'text',
-                );
+                const prefer = deepFindValueByKeys(obj, ['download_url', 'downloadUrl', 'url', 'link', 'href', 'direct', 'download', 'view_url', 'viewUrl']);
+                if (prefer) push(prefer);
 
-                const headers1 = String((r1 && r1.responseHeaders) || '');
-                const fu1 = String((r1 && r1.finalUrl) || '');
+                walk(obj, (o) => {
+                    for (const k of Object.keys(o || {})) {
+                        const v = o[k];
+                        if (typeof v === 'string') push(v);
+                    }
+                    if (Array.isArray(o)) {
+                        for (const it of o) if (typeof it === 'string') push(it);
+                    }
+                    return false;
+                });
 
-                const mLoc1 = /(?:^|\r?\n)location:\s*([^\r\n]+)/i.exec(headers1);
-                const loc1Abs = normalizeMaybeUrl(mLoc1 && mLoc1[1] ? mLoc1[1] : '');
-                if (loc1Abs && /\/v\//i.test(loc1Abs)) return loc1Abs;
-                if (fu1 && /\/v\//i.test(fu1)) return fu1;
+                const clean = candidates
+                    .map(s => String(s))
+                    .filter(s => !/filester\.me\/api\//i.test(s))
+                    .filter(s => !/filester\.me\/(css|js)\//i.test(s));
 
-                // If this looks like HTML, fetch the full HTML page (small) and extract the /v/ link.
-                const mCt1 = /content-type:\s*([^\r\n]+)/i.exec(headers1);
-                const ct1 = (mCt1 && mCt1[1]) ? String(mCt1[1]).trim() : '';
-                const isHtml = /text\/html|application\/xhtml\+xml/i.test(ct1);
+                if (!clean.length) return null;
 
-                if (isHtml) {
-                    const r2 = await http.base(
+                const score = (s) => {
+                    let sc = 0;
+                    // Strongly prefer CDN /v/ stream URLs.
+                    if (/https?:\/\/cache\d+\.filester\.me\/v\//i.test(s)) sc += 200;
+                    else if (/cache\d+\.filester\.me/i.test(s)) sc += 160;
+                    if (/\/v\//i.test(s)) sc += 80;
+                    if (/\.filester\.me\//i.test(s)) sc += 10;
+                    // De-prioritize HTML view tokens (/d/).
+                    if (/\/d\//i.test(s)) sc -= 25;
+                    if (/\.mp4(\?|$)/i.test(s)) sc += 2;
+                    return sc;
+                };
+
+                clean.sort((a, b) => score(b) - score(a));
+                return clean[0];
+            };
+
+            const pickName = (obj) => {
+                const v = deepFindValueByKeys(obj, ['filename', 'file_name', 'name', 'original_name', 'originalName', 'title']);
+                if (typeof v === 'string' && v.trim()) return v.trim();
+                return null;
+            };
+
+            const pickSize = (obj) => {
+                const v = deepFindValueByKeys(obj, ['size', 'bytes', 'file_size', 'fileSize', 'length']);
+                const n = Number(v);
+                return Number.isFinite(n) ? n : 0;
+            };
+
+            let nameHint = null;
+            let sizeHint = 0;
+            let relViewPath = null;
+            let streamUrlImmediate = null;
+
+            const filesterExtFromCt = (ct) => {
+                const t = String(ct || '').toLowerCase();
+                if (t.includes('video/mp4')) return 'mp4';
+                if (t.includes('video/webm')) return 'webm';
+                if (t.includes('image/jpeg') || t.includes('image/jpg')) return 'jpg';
+                if (t.includes('image/png')) return 'png';
+                if (t.includes('image/gif')) return 'gif';
+                if (t.includes('application/zip')) return 'zip';
+                if (t.includes('application/x-7z-compressed')) return '7z';
+                if (t.includes('application/x-rar') || t.includes('application/vnd.rar')) return 'rar';
+                return 'bin';
+            };
+
+            const filesterParseViewMeta = (html) => {
+                const out = { fileName: '', fileType: '' };
+                const s = String(html || '');
+                try {
+                    // Prefer JSON-style double-quoted assignment: window.fileName = "..."
+                    const m1 = /window\.fileName\s*=\s*("([^"\\]|\\.)*")\s*;?/m.exec(s);
+                    if (m1 && m1[1]) out.fileName = JSON.parse(m1[1]);
+                } catch (e) { }
+                try {
+                    // Fallback: single-quoted assignment: window.fileName = '...'
+                    if (!out.fileName) {
+                        const m1b = /window\.fileName\s*=\s*'([^'\\]*(?:\\.[^'\\]*)*)'\s*;?/m.exec(s);
+                        if (m1b && m1b[1]) out.fileName = String(m1b[1]).replace(/\\'/g, "'").replace(/\\n/g, "\n");
+                    }
+                } catch (e) { }
+                try {
+                    const m2 = /window\.fileType\s*=\s*("([^"\\]|\\.)*")\s*;?/m.exec(s);
+                    if (m2 && m2[1]) out.fileType = JSON.parse(m2[1]);
+                } catch (e) { }
+                try {
+                    if (!out.fileType) {
+                        const m2b = /window\.fileType\s*=\s*'([^'\\]*(?:\\.[^'\\]*)*)'\s*;?/m.exec(s);
+                        if (m2b && m2b[1]) out.fileType = String(m2b[1]).replace(/\\'/g, "'").replace(/\\n/g, "\n");
+                    }
+                } catch (e) { }
+                return out;
+            };
+
+
+
+            const filesterNormalizeFilename = (s) => {
+                let name = String(s || '').trim();
+                if (!name) return '';
+
+                // If UTF-8 bytes were interpreted as Latin-1 (common in Chrome/Tampermonkey),
+                // decode it back to proper UTF-8.
+                try {
+                    let hasHigh = false;
+                    let allByte = true;
+                    for (let i = 0; i < name.length; i++) {
+                        const c = name.charCodeAt(i);
+                        if (c > 255) { allByte = false; break; }
+                        if (c >= 128) hasHigh = true;
+                    }
+                    if (allByte && hasHigh && typeof TextDecoder !== 'undefined') {
+                        const bytes = new Uint8Array(name.length);
+                        for (let i = 0; i < name.length; i++) bytes[i] = name.charCodeAt(i) & 0xFF;
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        if (decoded && decoded !== name) name = decoded;
+                    }
+                } catch (e) { }
+
+                // Strip control chars (Windows will refuse these in filenames; mojibake often introduces them)
+                name = name.replace(/[\u0000-\u001F\u007F\u0080-\u009F]/g, '').trim();
+                return name;
+            };
+
+            const filesterParseDispositionFilename = (headersRaw) => {
+                try {
+                    const h = String(headersRaw || '');
+                    const mLine = /content-disposition:\s*([^\r\n]+)/i.exec(h);
+                    if (!mLine || !mLine[1]) return '';
+                    const v = String(mLine[1] || '');
+
+                    // RFC5987: filename*=UTF-8''...
+                    let m = /filename\*\s*=\s*([^;]+)/i.exec(v);
+                    if (m && m[1]) {
+                        let val = String(m[1]).trim();
+                        val = val.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+
+                        const mEnc = /^([^']*)''(.*)$/.exec(val);
+                        if (mEnc) {
+                            let data = String(mEnc[2] || '').trim();
+                            try {
+                                data = decodeURIComponent(data.replace(/\+/g, '%20'));
+                            } catch (e) {
+                                // best-effort
+                            }
+                            if (data) return filesterNormalizeFilename(data);
+                        } else {
+                            try {
+                                const decoded = decodeURIComponent(val.replace(/\+/g, '%20'));
+                                if (decoded) return filesterNormalizeFilename(decoded);
+                            } catch (e) { }
+                            if (val) return filesterNormalizeFilename(val);
+                        }
+                    }
+
+                    // Basic: filename="..."
+                    m = /filename\s*=\s*([^;]+)/i.exec(v);
+                    if (m && m[1]) {
+                        let val = String(m[1]).trim();
+                        val = val.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1');
+                        val = val.replace(/\\(.)/g, '$1');
+                        return filesterNormalizeFilename(val);
+                    }
+                } catch (e) { }
+                return '';
+            };
+
+
+
+            const filesterProbe = async (probeUrl) => {
+                try {
+                    const r = await http.base(
+                        'GET',
+                        probeUrl,
+                        { onResponseHeadersReceieved: () => { } },
+                        { Range: 'bytes=0-0', Referer: `${apiBase}/`, __xfpd_withCredentials: true },
+                        null,
+                        'text',
+                    );
+                    const status = Number(r && r.status) || 0;
+                    const headers = String((r && r.responseHeaders) || '');
+                    const dispName = filesterParseDispositionFilename(headers);
+                    const mCt = /content-type:\s*([^\r\n]+)/i.exec(headers);
+                    const ct = (mCt && mCt[1]) ? mCt[1].trim() : '';
+                    const mCr = /content-range:\s*bytes\s+\d+-\d+\/(\d+)/i.exec(headers);
+                    const mCl = /content-length:\s*(\d+)/i.exec(headers);
+                    const size = mCr && mCr[1] ? Number(mCr[1]) : (mCl && mCl[1] ? Number(mCl[1]) : 0);
+                    const isHtmlOrJson = /text\/html|application\/xhtml\+xml|application\/json/i.test(ct);
+                    const ok = status >= 200 && status < 400 && !isHtmlOrJson;
+                    return { ok, status, headers, contentType: ct, size: Number.isFinite(size) ? size : 0, fileName: dispName || '' };
+                } catch (e) {
+                    return { ok: false, status: 0, headers: '', contentType: '', size: 0 };
+                }
+            };
+
+            const filesterResolveDownloadToken = async (tokenUrl) => {
+                try {
+                    const ref = `${apiBase}/d/${slug}`;
+
+                    const normalizeMaybeUrl = (v) => {
+                        try {
+                            if (!v) return '';
+                            const s = String(v).trim();
+                            if (!s) return '';
+                            if (s.startsWith('/')) return new URL(s, apiBase).href;
+                            if (/^https?:\/\//i.test(s)) return s;
+                            return '';
+                        } catch (e) {
+                            return '';
+                        }
+                    };
+
+                    // Phase 1: range request (follows redirects) to capture finalUrl without downloading the whole file.
+                    const r1 = await http.base(
                         'GET',
                         tokenUrl,
                         {},
-                        { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', Referer: ref, __xfpd_withCredentials: true },
+                        { Range: 'bytes=0-0', Referer: ref, __xfpd_withCredentials: true },
                         null,
                         'text',
                     );
 
-                    const headers2 = String((r2 && r2.responseHeaders) || '');
-                    const fu2 = String((r2 && r2.finalUrl) || '');
+                    const headers1 = String((r1 && r1.responseHeaders) || '');
+                    const fu1 = String((r1 && r1.finalUrl) || '');
 
-                    const mLoc2 = /(?:^|\r?\n)location:\s*([^\r\n]+)/i.exec(headers2);
-                    const loc2Abs = normalizeMaybeUrl(mLoc2 && mLoc2[1] ? mLoc2[1] : '');
-                    if (loc2Abs && /\/v\//i.test(loc2Abs)) return loc2Abs;
-                    if (fu2 && /\/v\//i.test(fu2)) return fu2;
+                    const mLoc1 = /(?:^|\r?\n)location:\s*([^\r\n]+)/i.exec(headers1);
+                    const loc1Abs = normalizeMaybeUrl(mLoc1 && mLoc1[1] ? mLoc1[1] : '');
+                    if (loc1Abs && /\/v\//i.test(loc1Abs)) return loc1Abs;
+                    if (fu1 && /\/v\//i.test(fu1)) return fu1;
 
-                    const body = String((r2 && r2.source) || '');
+                    // If this looks like HTML, fetch the full HTML page (small) and extract the /v/ link.
+                    const mCt1 = /content-type:\s*([^\r\n]+)/i.exec(headers1);
+                    const ct1 = (mCt1 && mCt1[1]) ? String(mCt1[1]).trim() : '';
+                    const isHtml = /text\/html|application\/xhtml\+xml/i.test(ct1);
 
-                    const mFull = /(https?:\/\/cache\d+\.filester\.me\/v\/[^\"'<>\s]+)/i.exec(body);
-                    if (mFull && mFull[1]) return String(mFull[1]).trim();
+                    if (isHtml) {
+                        const r2 = await http.base(
+                            'GET',
+                            tokenUrl,
+                            {},
+                            { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', Referer: ref, __xfpd_withCredentials: true },
+                            null,
+                            'text',
+                        );
 
-                    const mRel = /[\"'](\/v\/[^\"'<>\s]+)[\"']/i.exec(body);
-                    if (mRel && mRel[1]) return new URL(String(mRel[1]), apiBase).href;
+                        const headers2 = String((r2 && r2.responseHeaders) || '');
+                        const fu2 = String((r2 && r2.finalUrl) || '');
+
+                        const mLoc2 = /(?:^|\r?\n)location:\s*([^\r\n]+)/i.exec(headers2);
+                        const loc2Abs = normalizeMaybeUrl(mLoc2 && mLoc2[1] ? mLoc2[1] : '');
+                        if (loc2Abs && /\/v\//i.test(loc2Abs)) return loc2Abs;
+                        if (fu2 && /\/v\//i.test(fu2)) return fu2;
+
+                        const body = String((r2 && r2.source) || '');
+
+                        const mFull = /(https?:\/\/cache\d+\.filester\.me\/v\/[^\"'<>\s]+)/i.exec(body);
+                        if (mFull && mFull[1]) return String(mFull[1]).trim();
+
+                        const mRel = /[\"'](\/v\/[^\"'<>\s]+)[\"']/i.exec(body);
+                        if (mRel && mRel[1]) return new URL(String(mRel[1]), apiBase).href;
+                    }
+
+                    return null;
+                } catch (e) {
+                    return null;
+                }
+            };
+
+            try {
+                if (progressCB) progressCB('[Filester] Fetching metadata...');
+                const viewRes = await http.base(
+                    'POST',
+                    `${apiBase}/api/public/view`,
+                    {},
+                    mkHeaders(),
+                    JSON.stringify({ file_slug: slug }),
+                    'text',
+                );
+                const viewJson = safeJson(viewRes && viewRes.source);
+                if (viewJson) {
+                    nameHint = pickName(viewJson) || nameHint;
+                    sizeHint = pickSize(viewJson) || sizeHint;
+                    try {
+                        const relView = deepFindValueByKeys(viewJson, ['view_url', 'viewUrl', 'view']);
+                        if (typeof relView === 'string' && relView.trim()) {
+                            const s = String(relView).trim();
+                            if (s.startsWith('/v/')) {
+                                relViewPath = s;
+                            } else if (s.startsWith('v/')) {
+                                relViewPath = '/' + s;
+                            } else if (/^https?:\/\//i.test(s)) {
+                                try {
+                                    const u0 = new URL(s);
+                                    if (/^\/v\//i.test(String(u0.pathname || ''))) {
+                                        relViewPath = String(u0.pathname || '') + String(u0.search || '');
+                                    }
+                                    // If the API already gave us a cache /v/ URL, keep it as an immediate candidate.
+                                    if (!streamUrlImmediate && /https?:\/\/cache6\.filester\.me\/v\//i.test(s)) {
+                                        streamUrlImmediate = s;
+                                    }
+                                } catch (e) { }
+                            }
+                        }
+                    } catch (e) { }
+                }
+            } catch (e) { }
+
+            // Try to extract the real filename (window.fileName = "...") from the HTML view.
+            // Some Filester API responses don't include the filename, but the HTML view does.
+            try {
+                // First try the slug page (it may redirect to /v/... or even directly to a cacheX /v/ stream).
+                // We use it for both filename hints and to discover the real /v/ path when the public API is blocked.
+                if (!nameHint || (!relViewPath && !streamUrlImmediate)) {
+                    const slugPageUrl = `${apiBase}/d/${slug}`;
+                    const htmlRes0 = await http.base(
+                        'GET',
+                        slugPageUrl,
+                        {},
+                        { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', __xfpd_withCredentials: true },
+                        {},
+                        'text',
+                    );
+                    const html0 = String((htmlRes0 && htmlRes0.source) || '');
+                    const meta0 = filesterParseViewMeta(html0);
+                    if (meta0 && meta0.fileName) nameHint = String(meta0.fileName);
+
+                    // If this request ended up at a /v/ URL, capture it.
+                    try {
+                        const fu0 = String((htmlRes0 && htmlRes0.finalUrl) || '');
+                        if (fu0 && /\/v\//i.test(fu0)) {
+                            if (!streamUrlImmediate && /https?:\/\/cache6\.filester\.me\/v\//i.test(fu0)) {
+                                streamUrlImmediate = fu0;
+                            }
+                            if (!relViewPath) {
+                                try {
+                                    const u1 = new URL(fu0);
+                                    if (/^\/v\//i.test(String(u1.pathname || ''))) {
+                                        relViewPath = String(u1.pathname || '') + String(u1.search || '');
+                                    }
+                                } catch (e) { }
+                            }
+                        }
+                    } catch (e) { }
+
+                    // Fallback: extract a /v/... token from the HTML itself.
+                    if (!streamUrlImmediate) {
+                        try {
+                            const mFull = /(https?:\/\/cache\d+\.filester\.me\/v\/[^\s"'<>]+)/i.exec(html0);
+                            if (mFull && mFull[1] && /https?:\/\/cache6\.filester\.me\/v\//i.test(mFull[1])) streamUrlImmediate = mFull[1];
+                        } catch (e) { }
+                    }
+                    if (!relViewPath) {
+                        try {
+                            const mRel = /["'](\/v\/[^"'<>\s]+)["']/i.exec(html0) || /(\/v\/[0-9a-f]{16,}[^"'<>\s]*)/i.exec(html0);
+                            if (mRel && mRel[1] && String(mRel[1]).startsWith('/v/')) relViewPath = mRel[1];
+                        } catch (e) { }
+                    }
                 }
 
-                return null;
-            } catch (e) {
-                return null;
-            }
-        };
+                // If still missing, try the explicit view_url returned by the API.
+                if (!nameHint && relViewPath && /^\/v\//i.test(String(relViewPath))) {
+                    const viewPageUrl = `${apiBase}${relViewPath}`;
+                    const htmlRes = await http.base(
+                        'GET',
+                        viewPageUrl,
+                        {},
+                        { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', __xfpd_withCredentials: true },
+                        {},
+                        'text',
+                    );
+                    const html = String((htmlRes && htmlRes.source) || '');
+                    const meta = filesterParseViewMeta(html);
+                    if (meta && meta.fileName) nameHint = filesterNormalizeFilename(String(meta.fileName));
+                }
+            } catch (e) { }
 
-        try {
-            if (progressCB) progressCB('[Filester] Fetching metadata...');
-            const viewRes = await http.base(
-                'POST',
-                `${apiBase}/api/public/view`,
-                {},
-                mkHeaders(),
-                JSON.stringify({ file_slug: slug }),
-                'text',
-            );
-            const viewJson = safeJson(viewRes && viewRes.source);
-            if (viewJson) {
-                nameHint = pickName(viewJson) || nameHint;
-                sizeHint = pickSize(viewJson) || sizeHint;
-                try {
-                    const relView = deepFindValueByKeys(viewJson, ['view_url', 'viewUrl', 'view']);
-                    if (typeof relView === 'string' && relView.trim()) {
-                        const s = String(relView).trim();
-                        if (s.startsWith('/v/')) {
-                            relViewPath = s;
-                        } else if (s.startsWith('v/')) {
-                            relViewPath = '/' + s;
-                        } else if (/^https?:\/\//i.test(s)) {
+            // Download API can return a /d/<token> which then redirects to the real /v/... stream URL.
+            // Use it as a fallback to discover the stream path when /api/public/view doesn't provide it.
+            try {
+                if (!streamUrlImmediate && !relViewPath) {
+                    if (progressCB) progressCB('[Filester] Resolving download token...');
+                    const dlRes0 = await http.base(
+                        'POST',
+                        `${apiBase}/api/public/download`,
+                        {},
+                        mkHeaders(),
+                        JSON.stringify({ file_slug: slug }),
+                        'text',
+                    );
+
+                    const src0 = String((dlRes0 && dlRes0.source) || '');
+                    const dlJson0 = safeJson(src0);
+
+                    let tokenUrl = null;
+                    try {
+                        const rel = dlJson0 ? deepFindValueByKeys(dlJson0, ['download_url', 'downloadUrl', 'url']) : null;
+                        if (typeof rel === 'string' && rel.trim()) tokenUrl = normalizeUrl(rel);
+                    } catch (e) { }
+
+                    if (!tokenUrl) {
+                        const m0 = /"download_url"\s*:\s*"([^"]+)"/i.exec(src0);
+                        if (m0 && m0[1]) tokenUrl = normalizeUrl(m0[1]);
+                    }
+
+                    if (tokenUrl) {
+                        // If the API returned a token (or /d/<token>), the actual stream is usually /v/<token> on cacheX.
+                        // Build relViewPath early so the probe loop can find a working cache host (cache6 preferred).
+                        try {
+                            let tokenStr = '';
                             try {
-                                const u0 = new URL(s);
-                                if (/^\/v\//i.test(String(u0.pathname || ''))) {
-                                    relViewPath = String(u0.pathname || '') + String(u0.search || '');
+                                const tk = dlJson0 ? deepFindValueByKeys(dlJson0, ['token']) : null;
+                                if (typeof tk === 'string') tokenStr = String(tk).trim();
+                            } catch (e) { }
+                            if (!tokenStr) {
+                                const mTok = /\/d\/([^\/\?#]+)/i.exec(String(tokenUrl || ''));
+                                if (mTok && mTok[1]) tokenStr = String(mTok[1]).trim();
+                            }
+                            if (tokenStr && !relViewPath) {
+                                if (tokenStr.startsWith('/v/')) relViewPath = tokenStr;
+                                else if (tokenStr.startsWith('v/')) relViewPath = '/' + tokenStr;
+                                else if (tokenStr.startsWith('/d/')) relViewPath = tokenStr.replace(/^\/d\//i, '/v/');
+                                else if (tokenStr.startsWith('d/')) relViewPath = '/' + tokenStr.replace(/^d\//i, 'v/');
+                                else relViewPath = `/v/${tokenStr}`;
+                            }
+                        } catch (e) { }
+
+                        const sUrl = await filesterResolveDownloadToken(tokenUrl);
+                        if (sUrl) {
+                            try {
+                                const u2 = new URL(sUrl);
+                                if (/^\/v\//i.test(String(u2.pathname || ''))) {
+                                    relViewPath = String(u2.pathname || '') + String(u2.search || '');
+                                    if (/https?:\/\/cache6\.filester\.me\/v\//i.test(sUrl)) streamUrlImmediate = String(sUrl);
                                 }
-                                // If the API already gave us a cache /v/ URL, keep it as an immediate candidate.
-                                if (!streamUrlImmediate && /https?:\/\/cache6\.filester\.me\/v\//i.test(s)) {
-                                    streamUrlImmediate = s;
-                                }
-                            } catch (e) {}
+                            } catch (e) {
+                                if (String(sUrl).startsWith('/v/')) relViewPath = String(sUrl);
+                            }
                         }
                     }
-                } catch (e) {}
-            }
-        } catch (e) {}
-
-        // Try to extract the real filename (window.fileName = "...") from the HTML view.
-// Some Filester API responses don't include the filename, but the HTML view does.
-try {
-    // First try the slug page (it may redirect to /v/... or even directly to a cacheX /v/ stream).
-    // We use it for both filename hints and to discover the real /v/ path when the public API is blocked.
-    if (!nameHint || (!relViewPath && !streamUrlImmediate)) {
-        const slugPageUrl = `${apiBase}/d/${slug}`;
-        const htmlRes0 = await http.base(
-            'GET',
-            slugPageUrl,
-            {},
-            { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', __xfpd_withCredentials: true },
-            {},
-            'text',
-        );
-        const html0 = String((htmlRes0 && htmlRes0.source) || '');
-        const meta0 = filesterParseViewMeta(html0);
-        if (meta0 && meta0.fileName) nameHint = String(meta0.fileName);
-
-        // If this request ended up at a /v/ URL, capture it.
-        try {
-            const fu0 = String((htmlRes0 && htmlRes0.finalUrl) || '');
-            if (fu0 && /\/v\//i.test(fu0)) {
-                if (!streamUrlImmediate && /https?:\/\/cache6\.filester\.me\/v\//i.test(fu0)) {
-                    streamUrlImmediate = fu0;
                 }
-                if (!relViewPath) {
-                    try {
-                        const u1 = new URL(fu0);
-                        if (/^\/v\//i.test(String(u1.pathname || ''))) {
-                            relViewPath = String(u1.pathname || '') + String(u1.search || '');
+            } catch (e) { }
+
+            // If we already discovered a cache /v/ stream URL from redirects or HTML, prefer it.
+            try {
+                if (streamUrlImmediate) {
+                    if (progressCB) progressCB('[Filester] Probing discovered stream URL...');
+                    const p0 = await filesterProbe(streamUrlImmediate);
+                    if (p0 && p0.ok) {
+                        const streamUrl = String(streamUrlImmediate);
+                        const streamCt = String(p0.contentType || '');
+                        const streamSize = Number(p0.size || 0) || 0;
+                        const streamHdrName = String((p0 && p0.fileName) || '');
+
+                        try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) { }
+                        try {
+                            const ref0 = (relViewPath ? `${apiBase}${relViewPath}` : `${apiBase}/d/${slug}`);
+                            if (ref0 && String(ref0).startsWith('http')) {
+                                filesterRefByUrl.set(String(streamUrl), String(ref0));
+                                filesterRefByUrl.set(String(url), String(ref0));
+                                filesterRefByUrl.set(`${apiBase}/d/${slug}`, String(ref0));
+                            }
+                        } catch (e) { }
+                        try { if (!nameHint && streamHdrName) nameHint = String(streamHdrName); } catch (e) { }
+
+                        const ext = filesterExtFromCt(streamCt);
+                        let finalName = '';
+                        try { if (nameHint) finalName = String(nameHint); } catch (e) { }
+                        if (!finalName) finalName = `Filester_${slug}.${ext || 'bin'}`;
+                        try {
+                            const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(String(finalName || ''));
+                            if (!hasExt && ext) finalName = `${finalName}.${ext}`;
+                        } catch (e) { }
+
+                        try {
+                            filesterNameBySlug.set(String(slug), String(finalName));
+                            filesterNameByUrl.set(String(streamUrl), String(finalName));
+                            try { filesterNameByUrl.set(String(url), String(finalName)); } catch (e) { }
+                            try { filesterNameByUrl.set(`${apiBase}/d/${slug}`, String(finalName)); } catch (e) { }
+                            try { if (relViewPath) filesterNameByUrl.set(`${apiBase}${relViewPath}`, String(finalName)); } catch (e) { }
+                        } catch (e) { }
+                        if (streamSize) {
+                            try {
+                                filesterSizeBySlug.set(String(slug), Number(streamSize));
+                                filesterSizeByUrl.set(String(streamUrl), Number(streamSize));
+                            } catch (e) { }
                         }
-                    } catch (e) {}
+
+                        return streamUrl;
+                    }
                 }
-            }
-        } catch (e) {}
+            } catch (e) { }
 
-        // Fallback: extract a /v/... token from the HTML itself.
-        if (!streamUrlImmediate) {
+            // Prefer the cache /v/ stream URL. The /d/ token often requires a Filester referer (otherwise it returns not_whitelisted).
             try {
-                const mFull = /(https?:\/\/cache\d+\.filester\.me\/v\/[^\s"'<>]+)/i.exec(html0);
-                if (mFull && mFull[1] && /https?:\/\/cache6\.filester\.me\/v\//i.test(mFull[1])) streamUrlImmediate = mFull[1];
-            } catch (e) {}
-        }
-        if (!relViewPath) {
+                if (relViewPath && /^\/v\//i.test(String(relViewPath))) {
+                    if (progressCB) progressCB('[Filester] Probing cache stream URL...');
+                    const bases = [];
+                    // Chrome Tampermonkey downloads are more reliable when starting from filester.me (redirects preserve a Filester referrer).
+                    if (!isFF) bases.push(apiBase);
+                    bases.push('https://cache6.filester.me');
+                    for (let i = 1; i <= 8; i++) if (i !== 6) bases.push(`https://cache${i}.filester.me`);
+                    if (isFF) bases.push(apiBase);
+
+                    let streamUrl = null;
+                    let streamCt = '';
+                    let streamSize = 0;
+                    let streamHdrName = '';
+
+                    for (const base of bases) {
+                        const cand = String(base).replace(/\/$/, '') + String(relViewPath);
+                        const p = await filesterProbe(cand);
+                        if (p && p.ok) {
+                            streamUrl = cand;
+                            streamCt = String(p.contentType || '');
+                            streamSize = Number(p.size || 0) || 0;
+                            streamHdrName = String((p && p.fileName) || '');
+                            break;
+                        }
+                    }
+
+                    if (streamUrl) {
+                        try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) { }
+                        try {
+                            const ref0 = (relViewPath ? `${apiBase}${relViewPath}` : `${apiBase}/d/${slug}`);
+                            if (ref0 && String(ref0).startsWith('http')) {
+                                filesterRefByUrl.set(String(streamUrl), String(ref0));
+                                filesterRefByUrl.set(String(url), String(ref0));
+                                filesterRefByUrl.set(`${apiBase}/d/${slug}`, String(ref0));
+                            }
+                        } catch (e) { }
+                        try { if (!nameHint && streamHdrName) nameHint = String(streamHdrName); } catch (e) { }
+                        const ext = filesterExtFromCt(streamCt);
+                        let finalName = '';
+                        try { if (nameHint) finalName = String(nameHint); } catch (e) { }
+                        if (!finalName) finalName = `Filester_${slug}.${ext || 'bin'}`;
+                        try {
+                            const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(String(finalName || ''));
+                            if (!hasExt && ext) finalName = `${finalName}.${ext}`;
+                        } catch (e) { }
+
+                        try {
+                            filesterNameBySlug.set(String(slug), String(finalName));
+                            filesterNameByUrl.set(String(streamUrl), String(finalName));
+                            try { filesterNameByUrl.set(String(url), String(finalName)); } catch (e) { }
+                            try { filesterNameByUrl.set(`${apiBase}/d/${slug}`, String(finalName)); } catch (e) { }
+                            try { if (relViewPath) filesterNameByUrl.set(`${apiBase}${relViewPath}`, String(finalName)); } catch (e) { }
+
+                        } catch (e) { }
+                        if (streamSize) {
+                            try {
+                                filesterSizeBySlug.set(String(slug), Number(streamSize));
+                                filesterSizeByUrl.set(String(streamUrl), Number(streamSize));
+                            } catch (e) { }
+                        }
+
+                        return streamUrl;
+                    }
+                }
+            } catch (e) { }
+
             try {
-                const mRel = /["'](\/v\/[^"'<>\s]+)["']/i.exec(html0) || /(\/v\/[0-9a-f]{16,}[^"'<>\s]*)/i.exec(html0);
-                if (mRel && mRel[1] && String(mRel[1]).startsWith('/v/')) relViewPath = mRel[1];
-            } catch (e) {}
-        }
-    }
-
-    // If still missing, try the explicit view_url returned by the API.
-    if (!nameHint && relViewPath && /^\/v\//i.test(String(relViewPath))) {
-        const viewPageUrl = `${apiBase}${relViewPath}`;
-        const htmlRes = await http.base(
-            'GET',
-            viewPageUrl,
-            {},
-            { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', __xfpd_withCredentials: true },
-            {},
-            'text',
-        );
-        const html = String((htmlRes && htmlRes.source) || '');
-        const meta = filesterParseViewMeta(html);
-        if (meta && meta.fileName) nameHint = filesterNormalizeFilename(String(meta.fileName));
-    }
-} catch (e) {}
-
-                // Download API can return a /d/<token> which then redirects to the real /v/... stream URL.
-        // Use it as a fallback to discover the stream path when /api/public/view doesn't provide it.
-        try {
-            if (!streamUrlImmediate && !relViewPath) {
-                if (progressCB) progressCB('[Filester] Resolving download token...');
-                const dlRes0 = await http.base(
+                if (progressCB) progressCB('[Filester] Resolving download URL...');
+                const dlRes = await http.base(
                     'POST',
                     `${apiBase}/api/public/download`,
                     {},
@@ -5141,250 +5319,69 @@ try {
                     'text',
                 );
 
-                const src0 = String((dlRes0 && dlRes0.source) || '');
-                const dlJson0 = safeJson(src0);
+                const src = String((dlRes && dlRes.source) || '');
+                const dlJson = safeJson(src);
+                let dlUrl = null;
 
-                let tokenUrl = null;
-                try {
-                    const rel = dlJson0 ? deepFindValueByKeys(dlJson0, ['download_url', 'downloadUrl', 'url']) : null;
-                    if (typeof rel === 'string' && rel.trim()) tokenUrl = normalizeUrl(rel);
-                } catch (e) {}
-
-                if (!tokenUrl) {
-                    const m0 = /"download_url"\s*:\s*"([^"]+)"/i.exec(src0);
-                    if (m0 && m0[1]) tokenUrl = normalizeUrl(m0[1]);
+                if (dlJson) {
+                    dlUrl = pickBestUrl(dlJson);
+                }
+                if (dlJson && !dlUrl) {
+                    try {
+                        const rel = deepFindValueByKeys(dlJson, ['download_url', 'downloadUrl', 'url']);
+                        if (typeof rel === 'string' && rel.startsWith('/')) dlUrl = `${apiBase}${rel}`;
+                    } catch (e) { }
                 }
 
-                if (tokenUrl) {
-                    // If the API returned a token (or /d/<token>), the actual stream is usually /v/<token> on cacheX.
-                    // Build relViewPath early so the probe loop can find a working cache host (cache6 preferred).
-                    try {
-                        let tokenStr = '';
+                if (dlJson && !dlUrl) {
+                    const waitRaw = deepFindValueByKeys(dlJson, ['wait', 'wait_time', 'waitSeconds', 'wait_seconds', 'seconds']);
+                    const waitSec = Number(waitRaw);
+                    if (Number.isFinite(waitSec) && waitSec > 0 && waitSec <= 300) {
                         try {
-                            const tk = dlJson0 ? deepFindValueByKeys(dlJson0, ['token']) : null;
-                            if (typeof tk === 'string') tokenStr = String(tk).trim();
-                        } catch (e) {}
-                        if (!tokenStr) {
-                            const mTok = /\/d\/([^\/\?#]+)/i.exec(String(tokenUrl || ''));
-                            if (mTok && mTok[1]) tokenStr = String(mTok[1]).trim();
-                        }
-                        if (tokenStr && !relViewPath) {
-                            if (tokenStr.startsWith('/v/')) relViewPath = tokenStr;
-                            else if (tokenStr.startsWith('v/')) relViewPath = '/' + tokenStr;
-                            else if (tokenStr.startsWith('/d/')) relViewPath = tokenStr.replace(/^\/d\//i, '/v/');
-                            else if (tokenStr.startsWith('d/')) relViewPath = '/' + tokenStr.replace(/^d\//i, 'v/');
-                            else relViewPath = `/v/${tokenStr}`;
-                        }
-                    } catch (e) {}
-
-                    const sUrl = await filesterResolveDownloadToken(tokenUrl);
-                    if (sUrl) {
-                        try {
-                            const u2 = new URL(sUrl);
-                            if (/^\/v\//i.test(String(u2.pathname || ''))) {
-                                relViewPath = String(u2.pathname || '') + String(u2.search || '');
-                                if (/https?:\/\/cache6\.filester\.me\/v\//i.test(sUrl)) streamUrlImmediate = String(sUrl);
-                            }
-                        } catch (e) {
-                            if (String(sUrl).startsWith('/v/')) relViewPath = String(sUrl);
+                            if (progressCB) progressCB(`[Filester] Waiting ${Math.ceil(waitSec)}s...`);
+                        } catch (e) { }
+                        await new Promise(r => setTimeout(r, Math.ceil(waitSec) * 1000));
+                        const dlRes2 = await http.base(
+                            'POST',
+                            `${apiBase}/api/public/download`,
+                            {},
+                            mkHeaders(),
+                            JSON.stringify({ file_slug: slug }),
+                            'text',
+                        );
+                        const src2 = String((dlRes2 && dlRes2.source) || '');
+                        const dlJson2 = safeJson(src2);
+                        if (dlJson2) dlUrl = pickBestUrl(dlJson2);
+                        if (!dlUrl) {
+                            const m2 = /(https?:\/\/[^\s"'<>]+)/i.exec(src2);
+                            if (m2 && m2[1]) dlUrl = m2[1];
                         }
                     }
                 }
-            }
-        } catch (e) {}
 
-// If we already discovered a cache /v/ stream URL from redirects or HTML, prefer it.
-        try {
-            if (streamUrlImmediate) {
-                if (progressCB) progressCB('[Filester] Probing discovered stream URL...');
-                const p0 = await filesterProbe(streamUrlImmediate);
-                if (p0 && p0.ok) {
-                    const streamUrl = String(streamUrlImmediate);
-                    const streamCt = String(p0.contentType || '');
-                    const streamSize = Number(p0.size || 0) || 0;
-                    const streamHdrName = String((p0 && p0.fileName) || '');
+                if (!dlUrl) {
+                    const m = /(https?:\/\/[^\s"'<>]+)/i.exec(src);
+                    if (m && m[1]) dlUrl = m[1];
+                }
 
-                    try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) {}
-                    try {
-                        const ref0 = (relViewPath ? `${apiBase}${relViewPath}` : `${apiBase}/d/${slug}`);
-                        if (ref0 && String(ref0).startsWith('http')) {
-                            filesterRefByUrl.set(String(streamUrl), String(ref0));
-                            filesterRefByUrl.set(String(url), String(ref0));
-                            filesterRefByUrl.set(`${apiBase}/d/${slug}`, String(ref0));
-                        }
-                    } catch (e) {}
-                    try { if (!nameHint && streamHdrName) nameHint = String(streamHdrName); } catch (e) {}
+                if (dlUrl) {
+                    try { filesterSlugByUrl.set(String(dlUrl), String(slug)); } catch (e) { }
 
-                    const ext = filesterExtFromCt(streamCt);
-                    let finalName = '';
-                    try { if (nameHint) finalName = String(nameHint); } catch (e) {}
-                    if (!finalName) finalName = `Filester_${slug}.${ext || 'bin'}`;
-                    try {
-                        const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(String(finalName || ''));
-                        if (!hasExt && ext) finalName = `${finalName}.${ext}`;
-                    } catch (e) {}
-
-                    try {
-                        filesterNameBySlug.set(String(slug), String(finalName));
-                        filesterNameByUrl.set(String(streamUrl), String(finalName));
-                        try { filesterNameByUrl.set(String(url), String(finalName)); } catch (e) {}
-                        try { filesterNameByUrl.set(`${apiBase}/d/${slug}`, String(finalName)); } catch (e) {}
-                        try { if (relViewPath) filesterNameByUrl.set(`${apiBase}${relViewPath}`, String(finalName)); } catch (e) {}
-                    } catch (e) {}
-                    if (streamSize) {
-                        try {
-                            filesterSizeBySlug.set(String(slug), Number(streamSize));
-                            filesterSizeByUrl.set(String(streamUrl), Number(streamSize));
-                        } catch (e) {}
+                    if (nameHint) {
+                        filesterNameBySlug.set(String(slug), String(nameHint));
+                        filesterNameByUrl.set(String(dlUrl), String(nameHint));
                     }
-
-                    return streamUrl;
-                }
-            }
-        } catch (e) {}
-
-// Prefer the cache /v/ stream URL. The /d/ token often requires a Filester referer (otherwise it returns not_whitelisted).
-        try {
-            if (relViewPath && /^\/v\//i.test(String(relViewPath))) {
-                if (progressCB) progressCB('[Filester] Probing cache stream URL...');
-                const bases = [];
-                // Chrome Tampermonkey downloads are more reliable when starting from filester.me (redirects preserve a Filester referrer).
-                if (!isFF) bases.push(apiBase);
-                bases.push('https://cache6.filester.me');
-                for (let i = 1; i <= 8; i++) if (i !== 6) bases.push(`https://cache${i}.filester.me`);
-                if (isFF) bases.push(apiBase);
-
-                let streamUrl = null;
-                let streamCt = '';
-                let streamSize = 0;
-                let streamHdrName = '';
-
-                for (const base of bases) {
-                    const cand = String(base).replace(/\/$/, '') + String(relViewPath);
-                    const p = await filesterProbe(cand);
-                    if (p && p.ok) {
-                        streamUrl = cand;
-                        streamCt = String(p.contentType || '');
-                        streamSize = Number(p.size || 0) || 0;
-                        streamHdrName = String((p && p.fileName) || '');
-                        break;
+                    if (sizeHint) {
+                        filesterSizeBySlug.set(String(slug), Number(sizeHint));
+                        filesterSizeByUrl.set(String(dlUrl), Number(sizeHint));
                     }
+                    return dlUrl;
                 }
+            } catch (e) { }
 
-                if (streamUrl) {
-                    try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) {}
-                    try {
-                        const ref0 = (relViewPath ? `${apiBase}${relViewPath}` : `${apiBase}/d/${slug}`);
-                        if (ref0 && String(ref0).startsWith('http')) {
-                            filesterRefByUrl.set(String(streamUrl), String(ref0));
-                            filesterRefByUrl.set(String(url), String(ref0));
-                            filesterRefByUrl.set(`${apiBase}/d/${slug}`, String(ref0));
-                        }
-                    } catch (e) {}
-                    try { if (!nameHint && streamHdrName) nameHint = String(streamHdrName); } catch (e) {}
-                    const ext = filesterExtFromCt(streamCt);
-                    let finalName = '';
-                    try { if (nameHint) finalName = String(nameHint); } catch (e) {}
-                    if (!finalName) finalName = `Filester_${slug}.${ext || 'bin'}`;
-                    try {
-                        const hasExt = /\.[A-Za-z0-9]{1,8}$/.test(String(finalName || ''));
-                        if (!hasExt && ext) finalName = `${finalName}.${ext}`;
-                    } catch (e) {}
-
-                    try {
-                        filesterNameBySlug.set(String(slug), String(finalName));
-                        filesterNameByUrl.set(String(streamUrl), String(finalName));
-                    try { filesterNameByUrl.set(String(url), String(finalName)); } catch (e) {}
-                    try { filesterNameByUrl.set(`${apiBase}/d/${slug}`, String(finalName)); } catch (e) {}
-                    try { if (relViewPath) filesterNameByUrl.set(`${apiBase}${relViewPath}`, String(finalName)); } catch (e) {}
-
-                    } catch (e) {}
-                    if (streamSize) {
-                        try {
-                            filesterSizeBySlug.set(String(slug), Number(streamSize));
-                            filesterSizeByUrl.set(String(streamUrl), Number(streamSize));
-                        } catch (e) {}
-                    }
-
-                    return streamUrl;
-                }
-            }
-        } catch (e) {}
-
-        try {
-            if (progressCB) progressCB('[Filester] Resolving download URL...');
-            const dlRes = await http.base(
-                'POST',
-                `${apiBase}/api/public/download`,
-                {},
-                mkHeaders(),
-                JSON.stringify({ file_slug: slug }),
-                'text',
-            );
-
-            const src = String((dlRes && dlRes.source) || '');
-            const dlJson = safeJson(src);
-            let dlUrl = null;
-
-            if (dlJson) {
-                dlUrl = pickBestUrl(dlJson);
-            }
-            if (dlJson && !dlUrl) {
-                try {
-                    const rel = deepFindValueByKeys(dlJson, ['download_url', 'downloadUrl', 'url']);
-                    if (typeof rel === 'string' && rel.startsWith('/')) dlUrl = `${apiBase}${rel}`;
-                } catch (e) {}
-            }
-
-            if (dlJson && !dlUrl) {
-                const waitRaw = deepFindValueByKeys(dlJson, ['wait', 'wait_time', 'waitSeconds', 'wait_seconds', 'seconds']);
-                const waitSec = Number(waitRaw);
-                if (Number.isFinite(waitSec) && waitSec > 0 && waitSec <= 300) {
-                    try {
-                        if (progressCB) progressCB(`[Filester] Waiting ${Math.ceil(waitSec)}s...`);
-                    } catch (e) {}
-                    await new Promise(r => setTimeout(r, Math.ceil(waitSec) * 1000));
-                    const dlRes2 = await http.base(
-                        'POST',
-                        `${apiBase}/api/public/download`,
-                        {},
-                        mkHeaders(),
-                        JSON.stringify({ file_slug: slug }),
-                        'text',
-                    );
-                    const src2 = String((dlRes2 && dlRes2.source) || '');
-                    const dlJson2 = safeJson(src2);
-                    if (dlJson2) dlUrl = pickBestUrl(dlJson2);
-                    if (!dlUrl) {
-                        const m2 = /(https?:\/\/[^\s"'<>]+)/i.exec(src2);
-                        if (m2 && m2[1]) dlUrl = m2[1];
-                    }
-                }
-            }
-
-            if (!dlUrl) {
-                const m = /(https?:\/\/[^\s"'<>]+)/i.exec(src);
-                if (m && m[1]) dlUrl = m[1];
-            }
-
-            if (dlUrl) {
-                try { filesterSlugByUrl.set(String(dlUrl), String(slug)); } catch (e) {}
-
-                if (nameHint) {
-                    filesterNameBySlug.set(String(slug), String(nameHint));
-                    filesterNameByUrl.set(String(dlUrl), String(nameHint));
-                }
-                if (sizeHint) {
-                    filesterSizeBySlug.set(String(slug), Number(sizeHint));
-                    filesterSizeByUrl.set(String(dlUrl), Number(sizeHint));
-                }
-                return dlUrl;
-            }
-        } catch (e) {}
-
-        return null;
-    },
-],
+            return null;
+        },
+    ],
     [
         [/m\.box\.com\//],
         async (url, http) => {
@@ -5521,53 +5518,53 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
 
 
-// Bunkr: capture filename hints from visible link text (works even when CF blocks /v/ pages).
-try {
-    const cc = parsedPost && parsedPost.contentContainer;
-    if (cc && cc.querySelectorAll) {
-        const strip = (s) => String(s || '').split('#')[0].split('?')[0];
-        const normUrl = (u) => {
-            u = String(u || '').replace(/&amp;/g, '&').trim();
-            u = u.split(/[\s"'<>]/)[0].trim();
-            if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`;
-            if (u.endsWith('/')) u = u.slice(0, -1);
-            return u;
-        };
-        const extractName = (t) => {
-            let s = String(t || '').replace(/\s+/g, ' ').trim();
-            if (!s) return '';
-            // If link text is itself a URL, it isn't a filename hint.
-            if (/^https?:\/\//i.test(s)) return '';
-            // Whole string looks like a filename (keep spaces).
-            if (/\.[A-Za-z0-9]{1,8}$/.test(s) && s.length <= 200) return s;
-            // Otherwise pick the last token-like filename.
-            const m = s.match(/[^\\/:*?"<>|\s]+\.[A-Za-z0-9]{1,8}/g);
-            if (m && m.length) {
-                const cand = m[m.length - 1];
-                if (cand && cand.length <= 200) return cand;
-            }
-            return '';
-        };
+    // Bunkr: capture filename hints from visible link text (works even when CF blocks /v/ pages).
+    try {
+        const cc = parsedPost && parsedPost.contentContainer;
+        if (cc && cc.querySelectorAll) {
+            const strip = (s) => String(s || '').split('#')[0].split('?')[0];
+            const normUrl = (u) => {
+                u = String(u || '').replace(/&amp;/g, '&').trim();
+                u = u.split(/[\s"'<>]/)[0].trim();
+                if (u && !/^https?:\/\//i.test(u)) u = `https://${u}`;
+                if (u.endsWith('/')) u = u.slice(0, -1);
+                return u;
+            };
+            const extractName = (t) => {
+                let s = String(t || '').replace(/\s+/g, ' ').trim();
+                if (!s) return '';
+                // If link text is itself a URL, it isn't a filename hint.
+                if (/^https?:\/\//i.test(s)) return '';
+                // Whole string looks like a filename (keep spaces).
+                if (/\.[A-Za-z0-9]{1,8}$/.test(s) && s.length <= 200) return s;
+                // Otherwise pick the last token-like filename.
+                const m = s.match(/[^\\/:*?"<>|\s]+\.[A-Za-z0-9]{1,8}/g);
+                if (m && m.length) {
+                    const cand = m[m.length - 1];
+                    if (cand && cand.length <= 200) return cand;
+                }
+                return '';
+            };
 
-        cc.querySelectorAll('a[href]').forEach(a => {
-            const href0 = normUrl(a.getAttribute('href'));
-            if (!href0) return;
+            cc.querySelectorAll('a[href]').forEach(a => {
+                const href0 = normUrl(a.getAttribute('href'));
+                if (!href0) return;
 
-            // only for bunkr-ish links (skip direct scdn links)
-            if (!/bunkrr?r?\./i.test(href0)) return;
-            if (/scdn\.st\//i.test(href0)) return;
+                // only for bunkr-ish links (skip direct scdn links)
+                if (!/bunkrr?r?\./i.test(href0)) return;
+                if (/scdn\.st\//i.test(href0)) return;
 
-            const nm = extractName(a.textContent || '');
-            if (!nm) return;
-            if (xfpdLooksLikeCfFilenameHint(nm)) return;
+                const nm = extractName(a.textContent || '');
+                if (!nm) return;
+                if (xfpdLooksLikeCfFilenameHint(nm)) return;
 
-            bunkrNameByUrl.set(href0, nm);
-            bunkrNameByUrl.set(strip(href0), nm);
-        });
-    }
-} catch (e) {}
+                bunkrNameByUrl.set(href0, nm);
+                bunkrNameByUrl.set(strip(href0), nm);
+            });
+        }
+    } catch (e) { }
 
-log.post.info(postId, '::Url resolution started::', postNumber);
+    log.post.info(postId, '::Url resolution started::', postNumber);
 
     for (const host of enabledHosts.filter(host => host.resources.length)) {
         const resources = host.resources;
@@ -5609,13 +5606,13 @@ log.post.info(postId, '::Url resolution started::', postNumber);
 
                 try {
                     const progressCB = (t) => {
-    try {
-        h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
-        h.ui.setText(statusLabel, t);
-    } catch (e) {}
-};
+                        try {
+                            h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
+                            h.ui.setText(statusLabel, t);
+                        } catch (e) { }
+                    };
 
-r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
+                    r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
                 } catch (e) {
                     if (host.name === 'Cyberdrop' && /cyberdrop\.[a-z]{2,}\/a\//i.test(String(resource))) {
                         continue;
@@ -5662,11 +5659,11 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
 
                 if (h.isArray(r.resolved)) {
                     r.resolved.forEach(url => {
-                    try {
-                        addResolved(url, r.folderName);
-                    } catch (e) {
-                    }
-                });
+                        try {
+                            addResolved(url, r.folderName);
+                        } catch (e) {
+                        }
+                    });
                 } else {
                     addResolved(r, null);
                 }
@@ -5842,28 +5839,28 @@ r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, p
         const batches = [];
 
         // Build batches:
-// - keep existing concurrency (batchLength) for speed
-// - but never put more than ONE GoFile item in the same batch (prevents GoFile "gate" spam / soft-block cascades)
-const isGoFileUrlBatch = u => /gofile\.io/i.test(String(u || ''));
+        // - keep existing concurrency (batchLength) for speed
+        // - but never put more than ONE GoFile item in the same batch (prevents GoFile "gate" spam / soft-block cascades)
+        const isGoFileUrlBatch = u => /gofile\.io/i.test(String(u || ''));
 
-let tmp = [];
-let tmpHasGoFile = false;
+        let tmp = [];
+        let tmpHasGoFile = false;
 
-for (const item of resources) {
-    const isGF = isGoFileUrlBatch(item.url);
-    // if current batch is full OR would contain 2x GoFile -> flush
-    if (tmp.length >= batchLength || (tmpHasGoFile && isGF)) {
-        batches.push(tmp);
-        tmp = [];
-        tmpHasGoFile = false;
-    }
+        for (const item of resources) {
+            const isGF = isGoFileUrlBatch(item.url);
+            // if current batch is full OR would contain 2x GoFile -> flush
+            if (tmp.length >= batchLength || (tmpHasGoFile && isGF)) {
+                batches.push(tmp);
+                tmp = [];
+                tmpHasGoFile = false;
+            }
 
-    tmp.push(item);
-    if (isGF) tmpHasGoFile = true;
-}
+            tmp.push(item);
+            if (isGF) tmpHasGoFile = true;
+        }
 
-if (tmp.length) {
-    batches.push(tmp);
+        if (tmp.length) {
+            batches.push(tmp);
         }
 
         const getNextBatch = () => {
@@ -5899,7 +5896,7 @@ if (tmp.length) {
             const turboExtractId = u => {
                 const s = String(u || '');
                 const m = s.match(/\/\/(?:[\w-]+\.)?turbo\.cr\/(?:v|d|embed)\/([^\/?#]+)/i) ||
-                          s.match(/\/\/(?:[\w-]+\.)?turbovid\.cr\/(?:v|d|embed)\/([^\/?#]+)/i);
+                    s.match(/\/\/(?:[\w-]+\.)?turbovid\.cr\/(?:v|d|embed)\/([^\/?#]+)/i);
                 return (m && m[1]) ? m[1] : '';
             };
 
@@ -5942,10 +5939,10 @@ if (tmp.length) {
                             const enc = encodeURIComponent(String(name)).replace(/%20/g, '+');
                             signed += (signed.includes('?') ? '&' : '?') + 'fn=' + enc;
                         }
-                        try { turboIdBySignedUrl.set(String(signed), String(turboId)); } catch (e) {}
+                        try { turboIdBySignedUrl.set(String(signed), String(turboId)); } catch (e) { }
                         return signed;
                     }
-                } catch (e) {}
+                } catch (e) { }
 
                 return null;
             };
@@ -6027,7 +6024,7 @@ if (tmp.length) {
                     GM_xmlhttpRequest({
                         method: 'HEAD',
                         url: headUrl,
-                                                onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '' }),
+                        onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '' }),
                         onerror: () => resolve({ ok: false, status: 0, headers: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, headers: '' }),
                     });
@@ -6041,7 +6038,7 @@ if (tmp.length) {
                     GM_xmlhttpRequest({
                         method: 'GET',
                         url: getUrl,
-                                                onload: r => resolve({ ok: true, status: r.status, text: r.responseText || '' }),
+                        onload: r => resolve({ ok: true, status: r.status, text: r.responseText || '' }),
                         onerror: () => resolve({ ok: false, status: 0, text: '' }),
                         ontimeout: () => resolve({ ok: false, status: 0, text: '' }),
                     });
@@ -6084,7 +6081,7 @@ if (tmp.length) {
                                     const v = j && (j.value || j.data || j);
                                     meta.size = extractNum((v && (v.size ?? v.bytes ?? v.length)) ?? (j && (j.size ?? j.bytes)));
                                     meta.filename = String((v && (v.name ?? v.filename ?? v.title)) ?? (j && (j.name ?? j.filename)) ?? '');
-                                } catch (e) {}
+                                } catch (e) { }
                             }
                         }
                     }
@@ -6093,23 +6090,23 @@ if (tmp.length) {
                     // Filester hints (API gives name/size but the CDN URL may not include them)
                     try {
                         if (!meta.size) {
-                        let hintedSize = 0;
-                        try {
-                            // Prefer slug-based hints (from /f/ album page) when available.
-                            const s0 = String(filesterSlugByUrl.get(String(dlUrl)) || '');
-                            hintedSize = Number(filesterSizeBySlug.get(s0) || filesterSizeByUrl.get(String(dlUrl)) || 0) || 0;
-                        } catch (e) { hintedSize = 0; }
-                        if (hintedSize) meta.size = extractNum(hintedSize);
-                    }
-                    if (!meta.filename) {
-                        let hintedName = '';
-                        try {
-                            const s0 = String(filesterSlugByUrl.get(String(dlUrl)) || '');
-                            hintedName = String(filesterNameBySlug.get(s0) || filesterNameByUrl.get(String(dlUrl)) || '');
-                        } catch (e) { hintedName = ''; }
-                        if (hintedName) meta.filename = String(hintedName);
-                    }
-                    } catch (e) {}
+                            let hintedSize = 0;
+                            try {
+                                // Prefer slug-based hints (from /f/ album page) when available.
+                                const s0 = String(filesterSlugByUrl.get(String(dlUrl)) || '');
+                                hintedSize = Number(filesterSizeBySlug.get(s0) || filesterSizeByUrl.get(String(dlUrl)) || 0) || 0;
+                            } catch (e) { hintedSize = 0; }
+                            if (hintedSize) meta.size = extractNum(hintedSize);
+                        }
+                        if (!meta.filename) {
+                            let hintedName = '';
+                            try {
+                                const s0 = String(filesterSlugByUrl.get(String(dlUrl)) || '');
+                                hintedName = String(filesterNameBySlug.get(s0) || filesterNameByUrl.get(String(dlUrl)) || '');
+                            } catch (e) { hintedName = ''; }
+                            if (hintedName) meta.filename = String(hintedName);
+                        }
+                    } catch (e) { }
 
                     // Fallback HEAD (works for GoFile store links and Pixeldrain list ZIPs)
                     const nameHasExt = /\.[A-Za-z0-9]{1,8}$/.test(String(meta.filename || ''));
@@ -6126,7 +6123,8 @@ if (tmp.length) {
                             const cdName = parseDispositionFilename(meta.headers);
                             if (cdName) meta.filename = cdName;
                         }
-                    }                } catch (e) {}
+                    }
+                } catch (e) { }
 
                 preflightMetaCache.set(key, meta);
                 return meta;
@@ -6145,8 +6143,8 @@ if (tmp.length) {
             //   * If album contains any non-image file (mixed OR video-only) -> DIRECT all.
             //   * Images-only album keeps default behavior.
 
-            const FIL_IMG_EXTS = new Set(['.jpg','.jpeg','.png','.gif','.webp','.bmp','.avif','.tif','.tiff','.jxl','.heic','.heif']);
-            const FIL_VID_EXTS = new Set(['.mp4','.m4v','.webm','.mkv','.mov','.avi','.wmv','.flv','.ts','.m2ts','.mpg','.mpeg','.3gp']);
+            const FIL_IMG_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif', '.tif', '.tiff', '.jxl', '.heic', '.heif']);
+            const FIL_VID_EXTS = new Set(['.mp4', '.m4v', '.webm', '.mkv', '.mov', '.avi', '.wmv', '.flv', '.ts', '.m2ts', '.mpg', '.mpeg', '.3gp']);
 
             const filesterGuessExt = (s) => {
                 const t = String(s || '').trim();
@@ -6162,7 +6160,7 @@ if (tmp.length) {
                     // cacheN /v/ tokens -> map back to slug when known
                     const s2 = String(filesterSlugByUrl.get(String(u0)) || '');
                     if (s2) return s2;
-                } catch (e) {}
+                } catch (e) { }
                 return '';
             };
 
@@ -6302,7 +6300,7 @@ if (tmp.length) {
                         }
                         // Images-only album: keep default behavior.
                     }
-                } catch (e) {}
+                } catch (e) { }
             };
 
             await applyFilesterAlbumPolicy();
@@ -6311,16 +6309,16 @@ if (tmp.length) {
                 try {
                     const tab = GM_openInTab(warmUrl, { active: false, insert: true, setParent: true });
                     setTimeout(() => {
-                        try { xfpdCloseTabHandle(tab); } catch (e) {}
+                        try { xfpdCloseTabHandle(tab); } catch (e) { }
                     }, GOFILE_WARMUP_MS);
-                } catch (e) {}
+                } catch (e) { }
             };
 
             let filesterNoTabTokenLogged = false;
 
             const startDownload = async (resource, pass = 1) => {
                 let { url, host, original, folderName } = resource;
-                const zippedForThis = !!(postSettings.zipped && !(resource && (resource.forceDirect || resource.forceUnzipped)) );
+                const zippedForThis = !!(postSettings.zipped && !(resource && (resource.forceDirect || resource.forceUnzipped)));
                 const isGoFile = isGoFileUrl(url);
                 const isPixeldrain = isPixeldrainUrl(url);
                 const isTurbo = isTurboUrl(url);
@@ -6356,10 +6354,10 @@ if (tmp.length) {
 
                                 const txt = String((apiRes && apiRes.source) || '');
                                 let j = null;
-                                try { j = JSON.parse(txt); } catch (e) {}
+                                try { j = JSON.parse(txt); } catch (e) { }
 
                                 let token = '';
-                                try { if (j && typeof j.token === 'string') token = String(j.token).trim(); } catch (e) {}
+                                try { if (j && typeof j.token === 'string') token = String(j.token).trim(); } catch (e) { }
                                 if (!token) {
                                     try {
                                         const rel = j && (j.download_url || j.downloadUrl || j.url);
@@ -6367,7 +6365,7 @@ if (tmp.length) {
                                             const m = /\/d\/([^\/?#]+)/i.exec(String(rel));
                                             if (m && m[1]) token = String(m[1]).trim();
                                         }
-                                    } catch (e) {}
+                                    } catch (e) { }
                                 }
                                 if (!token) {
                                     const m2 = /"token"\s*:\s*"([^"]+)"/i.exec(txt);
@@ -6377,27 +6375,27 @@ if (tmp.length) {
                                 if (token) {
                                     const candidates = filesterBuildCandidates(token);
                                     const streamUrl = (candidates && candidates.length) ? candidates[0] : `https://cache6.filester.me/v/${token}`;
-                                    try { filesterCandidatesByToken.set(String(token), candidates); } catch (e) {}
+                                    try { filesterCandidatesByToken.set(String(token), candidates); } catch (e) { }
                                     try {
                                         for (const c of (candidates || [])) {
-                                            try { filesterSlugByUrl.set(String(c), String(slug)); } catch (e) {}
-                                            try { filesterRefByUrl.set(String(c), 'https://filester.me/'); } catch (e) {}
+                                            try { filesterSlugByUrl.set(String(c), String(slug)); } catch (e) { }
+                                            try { filesterRefByUrl.set(String(c), 'https://filester.me/'); } catch (e) { }
                                         }
-                                    } catch (e) {}
+                                    } catch (e) { }
                                     if (!filesterNoTabTokenLogged) {
                                         filesterNoTabTokenLogged = true;
                                         log.post.info(postId, `::Filester slug->token->cache (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
                                     }
 
-                                    try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) {}
-                                    try { filesterRefByUrl.set(String(streamUrl), 'https://filester.me/'); } catch (e) {}
-                                    try { filesterRefByUrl.set(String(url), 'https://filester.me/'); } catch (e) {}
+                                    try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) { }
+                                    try { filesterRefByUrl.set(String(streamUrl), 'https://filester.me/'); } catch (e) { }
+                                    try { filesterRefByUrl.set(String(url), 'https://filester.me/'); } catch (e) { }
                                     url = streamUrl;
-                                    try { resource.url = streamUrl; } catch (e) {}
+                                    try { resource.url = streamUrl; } catch (e) { }
                                 }
                             }
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
 
@@ -6412,16 +6410,16 @@ if (tmp.length) {
                 h.ui.setElProps(statusLabel, { fontWeight: 'normal' });
 
                 var reflink = original;
-                if (url.includes('bunkr')){
+                if (url.includes('bunkr')) {
                     reflink = "https://bunkr.si"
                 }
-                if (url.includes('pomf2')){
+                if (url.includes('pomf2')) {
                     reflink = "https://pomf2.lain.la"
                 }
-                if (url.includes('turbocdn.st')){
+                if (url.includes('turbocdn.st')) {
                     reflink = "https://turbo.cr/"
                 }
-                if (/(?:\bfilester\.me\b|cache\d+\.filester\.me)/i.test(String(url || ''))){
+                if (/(?:\bfilester\.me\b|cache\d+\.filester\.me)/i.test(String(url || ''))) {
                     reflink = "https://filester.me/"
                 }
 
@@ -6439,7 +6437,7 @@ if (tmp.length) {
                         if (cyberSlug) cyberFilePage = `${cyberOrigin}/f/${cyberSlug}`;
                         // Match browser requests: Referer/Origin are usually just https://cyberdrop.cr/
                         reflink = `${cyberOrigin}/`;
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 const ellipsedUrl = h.limit(url, 80);
@@ -6448,7 +6446,7 @@ if (tmp.length) {
                 if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|selti-delivery\.ru/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
 
                     cyberdropDirectWarmupDone = true;
-                                        log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
+                    log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
                     await cyberdropWarmupOnce(cyberOrigin, cyberFilePage, CYBERDROP_WARMUP_MS);
                 }
 
@@ -6558,7 +6556,7 @@ if (tmp.length) {
                                     basename = sanitizeWinSegment(String(basename || ''));
                                     if (!basename) basename = sanitizeWinSegment(String(h.basename(strip(url)) || ''));
                                 }
-                            } catch (e) {}
+                            } catch (e) { }
                         }
 
                         // Filester: prefer the real filename (from view page / API hints); fallback to a safe slug-based name.
@@ -6591,7 +6589,7 @@ if (tmp.length) {
                                 } else if (slug0) {
                                     basename = `Filester_${slug0}.${ext0}`;
                                 }
-                            } catch (e) {}
+                            } catch (e) { }
                         }
 
                         const originalName = basename;
@@ -6717,7 +6715,7 @@ if (tmp.length) {
                                             url: blobUrl,
                                             name: saveAsName,
                                             onload: () => {
-                                                try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                                try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 completed++;
                                                 completedBatchedDownloads++;
                                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
@@ -6725,14 +6723,14 @@ if (tmp.length) {
                                                 h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
                                             },
                                             onerror: err => {
-                                                try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                                try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) failed (${(err && err.error) || 'unknown'})::: ${url}`, postNumber);
                                                 console.log('[Pixeldrain list ZIP debug] GM_download(blob:) error', err);
                                                 completed++;
                                                 completedBatchedDownloads++;
                                             },
                                             ontimeout: err => {
-                                                try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                                try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) timed out::: ${url}`, postNumber);
                                                 console.log('[Pixeldrain list ZIP debug] GM_download(blob:) timeout', err);
                                                 completed++;
@@ -6838,14 +6836,14 @@ if (tmp.length) {
                                         }
                                     }
                                 }
-                            } catch (e) {}
+                            } catch (e) { }
                         }
 
-const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn(url) } : null;
+                        const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn(url) } : null;
                         const dlOpts = {
                             url: directUrl,
                             name: saveAsName,
-                                                        onprogress: e => {
+                            onprogress: e => {
                                 const loadedMB = Number((e.loaded || 0) / 1024 / 1024).toFixed(2);
                                 const totalBytes = (e.total && e.total > 0) ? e.total : (sizeBytes || 0);
                                 const totalMB = totalBytes ? Number(totalBytes / 1024 / 1024).toFixed(2) : '??';
@@ -6899,7 +6897,7 @@ const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn
                                 });
                             },
                         };
-if (imagebamHeaders && isFF) {
+                        if (imagebamHeaders && isFF) {
                             // Imagebam CDN often blocks hotlinking without a Referer. In Firefox, GM_download headers
                             // are unreliable, so fetch as a blob with GM_xmlhttpRequest (with Referer) then save.
                             try {
@@ -6928,9 +6926,9 @@ if (imagebamHeaders && isFF) {
                                         GM_download({
                                             url: blobUrl,
                                             name: saveAsName,
-                                            onload: () => { try { URL.revokeObjectURL(blobUrl); } catch (e) {} dlOpts.onload(); },
-                                            onerror: err => { try { URL.revokeObjectURL(blobUrl); } catch (e) {} dlOpts.onerror(err); },
-                                            ontimeout: err => { try { URL.revokeObjectURL(blobUrl); } catch (e) {} dlOpts.ontimeout(err); },
+                                            onload: () => { try { URL.revokeObjectURL(blobUrl); } catch (e) { } dlOpts.onload(); },
+                                            onerror: err => { try { URL.revokeObjectURL(blobUrl); } catch (e) { } dlOpts.onerror(err); },
+                                            ontimeout: err => { try { URL.revokeObjectURL(blobUrl); } catch (e) { } dlOpts.ontimeout(err); },
                                         });
                                     },
                                     onerror: dlOpts.onerror,
@@ -6971,10 +6969,10 @@ if (imagebamHeaders && isFF) {
                                     if (finalUrl && typeof finalUrl === 'string' && /^https?:\/\//i.test(finalUrl)) {
                                         dlOpts.url = finalUrl;
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
                             }
-console.log("DOWNLOAD URL:", dlOpts.url);
-GM_download(dlOpts);
+                            console.log("DOWNLOAD URL:", dlOpts.url);
+                            GM_download(dlOpts);
                         }
 
                     } catch (e) {
@@ -7002,7 +7000,7 @@ GM_download(dlOpts);
                     return;
                 }
 
-if (isGoFile || isPixeldrain || isFilester) {
+                if (isGoFile || isPixeldrain || isFilester) {
                     const meta0 = await preflightMeta(url, reflink, isGoFile, isPixeldrain);
                     if (meta0 && meta0.size && meta0.size > BLOB_MAX_BYTES) {
                         log.post.info(postId, `::Large file (${meta0.size} bytes > ~1.6GB) -> DIRECT (skip blob)::: ${url}`, postNumber);
@@ -7041,7 +7039,7 @@ if (isGoFile || isPixeldrain || isFilester) {
                                 const fu = String(response.finalUrl || '');
                                 if (/\/maint\.mp4(\?|$)/i.test(loc) || /\/maint\.mp4(\?|$)/i.test(fu)) {
                                     abortReason = 'bunkr_maint';
-                                    try { request.abort(); } catch (e) {}
+                                    try { request.abort(); } catch (e) { }
                                 }
                             }
                         }
@@ -7055,7 +7053,7 @@ if (isGoFile || isPixeldrain || isFilester) {
                         if (!switchedToDirect && (isGoFile || isPixeldrain || isFilester) && response && response.total && response.total > BLOB_MAX_BYTES) {
                             log.post.info(postId, `::Large file (${response.total} bytes > ~1.6GB) detected -> switch to DIRECT::: ${url}`, postNumber);
                             switchedToDirect = true;
-                            try { request.abort(); } catch (e) {}
+                            try { request.abort(); } catch (e) { }
                             startDirectDownload({ size: response.total });
                             return;
                         }
@@ -7102,8 +7100,8 @@ if (isGoFile || isPixeldrain || isFilester) {
                                 }
 
                                 // Retry failed -> mark as unsuccessful and continue.
-                        completed++;
-                        completedBatchedDownloads++;
+                                completed++;
+                                completedBatchedDownloads++;
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -7128,7 +7126,7 @@ if (isGoFile || isPixeldrain || isFilester) {
 
                             if (badStatus || isGate || isTiny) {
                                 if (pass === 1 && cyberOrigin && cyberFilePage) {
-                                                                        log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then retry [1/2]::: ${cyberFilePage}`, postNumber);
+                                    log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then retry [1/2]::: ${cyberFilePage}`, postNumber);
                                     cyberdropWarmupOnce(cyberOrigin, cyberFilePage, CYBERDROP_WARMUP_MS)
                                         .then(() => startDownload(resource, 2))
                                         .catch(() => startDownload(resource, 2));
@@ -7188,9 +7186,9 @@ if (isGoFile || isPixeldrain || isFilester) {
                                             }
                                             if (nextUrl) {
                                                 log.post.info(postId, `::Filester cache 404 -> try next cache [${tried0.size}/${(candidates0 || []).length}]::: ${nextUrl}`, postNumber);
-                                                try { filesterRefByUrl.set(String(nextUrl), 'https://filester.me/'); } catch (e) {}
-                                                try { resource.url = nextUrl; } catch (e) {}
-                                                try { url = nextUrl; } catch (e) {}
+                                                try { filesterRefByUrl.set(String(nextUrl), 'https://filester.me/'); } catch (e) { }
+                                                try { resource.url = nextUrl; } catch (e) { }
+                                                try { url = nextUrl; } catch (e) { }
                                                 startDownload(resource, pass);
                                                 return;
                                             }
@@ -7198,7 +7196,7 @@ if (isGoFile || isPixeldrain || isFilester) {
                                     }
 
 
-                                                                        // Filester: retry a few times on transient HTTP errors (429/400/etc) before switching to DIRECT.
+                                    // Filester: retry a few times on transient HTTP errors (429/400/etc) before switching to DIRECT.
                                     // Keep pauses short (<=~2.5s) and try alternate cacheN hosts (cache6 <-> cache1) when possible.
                                     if (badStatus) {
                                         const st0 = Number(response.status || 0) || 0;
@@ -7278,17 +7276,17 @@ if (isGoFile || isPixeldrain || isFilester) {
                                                         else if (!mf && mt) switchInfo = `; switching other->${mt[1]}`;
                                                         else switchInfo = '; switching host';
                                                     }
-                                                } catch (e) {}
+                                                } catch (e) { }
                                                 log.post.info(postId, `::Filester HTTP ${st0} -> retry [${a0}/${max0}] after ${waitMs}ms${switchInfo}::: ${tgt}`, postNumber);
 
                                                 setTimeout(() => {
                                                     try {
                                                         if (nextUrl) {
-                                                            try { filesterRefByUrl.set(String(nextUrl), 'https://filester.me/'); } catch (e) {}
-                                                            try { resource.url = nextUrl; } catch (e) {}
-                                                            try { url = nextUrl; } catch (e) {}
+                                                            try { filesterRefByUrl.set(String(nextUrl), 'https://filester.me/'); } catch (e) { }
+                                                            try { resource.url = nextUrl; } catch (e) { }
+                                                            try { url = nextUrl; } catch (e) { }
                                                         }
-                                                    } catch (e) {}
+                                                    } catch (e) { }
                                                     startDownload(resource, pass);
                                                 }, waitMs);
 
@@ -7297,7 +7295,7 @@ if (isGoFile || isPixeldrain || isFilester) {
                                         }
                                     }
 
-const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''));
+                                    const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''));
                                     if (!isView) {
                                         log.post.info(postId, `::Filester blocked/tiny response -> switch to DIRECT [1/2]::: ${url}`, postNumber);
                                         startDirectDownload({ size: hintSize || 0 });
@@ -7383,7 +7381,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                             }
                         }
 
-// Success path (unchanged)
+                        // Success path (unchanged)
                         completed++;
                         completedBatchedDownloads++;
 
@@ -7452,10 +7450,10 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                         } else if (url.includes('kemono.cr')) {
                             basename = filename
                                 ? filename.name
-                            : h
-                                .basename(url)
-                                .replace(/(.*)\?f=(.*)/, '$2')
-                                .replace('%20', ' ');
+                                : h
+                                    .basename(url)
+                                    .replace(/(.*)\?f=(.*)/, '$2')
+                                    .replace('%20', ' ');
                         } else if (url.includes('cyberdrop')) {
                             const rh = response && response.responseHeaders ? String(response.responseHeaders) : '';
                             const cdName = parseDispositionFilename(rh);
@@ -7463,7 +7461,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                 ? cdName
                                 : (filename ? filename.name : h.basename(url).replace(/\?.*/, '').replace(/#.*/, ''));
 
-                            try { basename = decodeURI(basename); } catch (e) {}
+                            try { basename = decodeURI(basename); } catch (e) { }
 
                             const extMatch = basename.match(/\.\w{3,6}$/);
                             const basename_ext = extMatch ? extMatch[0] : '';
@@ -7528,7 +7526,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                     basename = sanitizeWinSegment(String(basename || ''));
                                     if (!basename) basename = sanitizeWinSegment(String(h.basename(strip(url)) || ''));
                                 }
-                            } catch (e) {}
+                            } catch (e) { }
                         }
 
                         // Filester: prefer the real filename (from view page / API hints). Only fall back to a safe slug-based name when needed.
@@ -7563,7 +7561,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                 }
 
                                 basename = sanitizeWinSegment(String(basename || ''));
-                            } catch (e) {}
+                            } catch (e) { }
                         }
 
 
@@ -7668,13 +7666,13 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                     name: saveAsName,
                                     onload: () => {
                                         clearTimeout(safetyTimer);
-                                        try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                        try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                         gmDlResolve(true);
                                     },
                                     onerror: response => {
                                         clearTimeout(safetyTimer);
                                         // not_whitelisted or other GM_download error - fall back to saveAs
-                                        try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+                                        try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                         console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
                                         console.log(response);
                                         // saveAs can't create subfolders, so use flat name with thread title
@@ -7687,7 +7685,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                             }
                         }
 
-                                                if (zippedForThis) {
+                        if (zippedForThis) {
                             zip.file(fn, fileBlob);
                             zipFileCount++;
                         }
@@ -7734,7 +7732,7 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
 
                 requests.push({ url: progressKey, request });
 
-                                const stallMs = isTurbo ? TURBO_STALL_MS : 30000;
+                const stallMs = isTurbo ? TURBO_STALL_MS : 30000;
 
                 const intervalId = setInterval(async () => {
                     const p = requestProgress.find(r => r.url === progressKey);
@@ -7760,11 +7758,11 @@ const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''))
                                     if (newUrl) {
                                         resource.url = newUrl;
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
 
                                 // Retry once (even if we couldn't re-sign, a plain retry sometimes works).
                                 setTimeout(() => startDownload(resource, pass + 1), st.resign >= 3 ? TURBO_RETRY_DELAY_MS * 2 : TURBO_RETRY_DELAY_MS);
-return;
+                                return;
                             }
 
                             if (st.direct < TURBO_DIRECT_FALLBACKS) {
@@ -7822,9 +7820,26 @@ return;
                 startDownload(item, 1);
             }
 
+            log.post.info(postId, `::Iniciando batch de ${batch.length} arquivos (post #${postNumber})::`, postNumber);
+            const batchStartTime = Date.now();
+            const BATCH_MAX_TIME_MS = 30 * 60 * 1000;
+
             while (completedBatchedDownloads < batch.length) {
                 await h.delayedResolve(1000);
+
+                const elapsed = Date.now() - batchStartTime;
+                if (elapsed > BATCH_MAX_TIME_MS) {
+                    log.post.error(postId, `::BATCH TIMEOUT (30min) - forçando continuação (post #${postNumber})::`, postNumber);
+                    console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout 30min`);
+                    break;
+                }
+
+                if (Math.floor(elapsed / 10000) % 10 === 0 && elapsed > 0) {
+                    console.log(`[XFPD BATCH] Post #${postNumber} | ${completedBatchedDownloads}/${batch.length} concluídos | ${Math.floor(elapsed / 1000)}s`);
+                }
             }
+
+            log.post.info(postId, `::Batch finalizado (${completedBatchedDownloads}/${batch.length}) - continuando...::`, postNumber);
 
             if (completedBatchedDownloads >= batch.length) {
                 completedBatchedDownloads = 0;
@@ -7836,6 +7851,10 @@ return;
         log.post.info(postId, '::Skipping download::', postNumber);
     }
 
+    // requests = [];
+    // requestProgress = [];
+    // // filenames = [];
+    // mimeTypes = [];
     h.hide(statusLabel);
     h.hide(filePB);
     h.hide(totalPB);
@@ -7849,12 +7868,12 @@ return;
         const needZipBlob = (postSettings.generateLog || postSettings.generateLinks || (postSettings.zipped && zipFileCount > 0));
 
 
-                // If "Zipped" is enabled but nothing was added to the ZIP (e.g. everything was saved via DIRECT),
-                // skip creating an empty ZIP file.
-                if (postSettings.zipped && zipFileCount === 0 && !postSettings.generateLog && !postSettings.generateLinks) {
-                    log.post.info(postId, `::Zipped ON but nothing to zip (all DIRECT downloads) -> skipping ZIP::`, postNumber);
-                }
-if (needZipBlob) {
+        // If "Zipped" is enabled but nothing was added to the ZIP (e.g. everything was saved via DIRECT),
+        // skip creating an empty ZIP file.
+        if (postSettings.zipped && zipFileCount === 0 && !postSettings.generateLog && !postSettings.generateLinks) {
+            log.post.info(postId, `::Zipped ON but nothing to zip (all DIRECT downloads) -> skipping ZIP::`, postNumber);
+        }
+        if (needZipBlob) {
             log.separator(postId);
             log.post.info(postId, postSettings.zipped ? `::Preparing zip::` : `::Preparing generated.zip::`, postNumber);
 
@@ -7900,16 +7919,16 @@ if (needZipBlob) {
                                 url,
                                 name: `${title}/#${postNumber}.zip`,
                                 onload: () => {
-                                    try { URL.revokeObjectURL(url); } catch (e) {}
+                                    try { URL.revokeObjectURL(url); } catch (e) { }
                                     blob = null;
                                     resolve();
                                 },
                                 onerror: response => {
-                                    try { URL.revokeObjectURL(url); } catch (e) {}
+                                    try { URL.revokeObjectURL(url); } catch (e) { }
                                     console.log(`Error writing file to disk. There may be more details below.`);
                                     console.log(response);
                                     console.log('Trying to write using FileSaver...');
-                                    try { saveAs(blob, mainZipName); } catch (e) {}
+                                    try { saveAs(blob, mainZipName); } catch (e) { }
                                     console.log('Done!');
                                     resolve();
                                 },
@@ -7927,12 +7946,12 @@ if (needZipBlob) {
                                     url,
                                     name: `${title}/#${postNumber}/generated.zip`,
                                     onload: () => {
-                                        try { URL.revokeObjectURL(url); } catch (e) {}
+                                        try { URL.revokeObjectURL(url); } catch (e) { }
                                         blob = null;
                                         resolve();
                                     },
                                     onerror: response => {
-                                        try { URL.revokeObjectURL(url); } catch (e) {}
+                                        try { URL.revokeObjectURL(url); } catch (e) { }
                                         console.log(`Error writing generated.zip to disk. There may be more details below.`);
                                         console.log(response);
                                         blob = null;
@@ -8070,7 +8089,7 @@ async function cyberdropWarmupOnce(key, warmUrl, ms = CYBERDROP_WARMUP_DEFAULT_M
     const _k0 = String(key || '').trim();
     if (_k0.indexOf('://') !== -1) {
         const m = _k0.match(/https?:\/\/[^\s]+/i);
-        if (m) { try { key = `cyberdrop:${new URL(m[0]).origin}`; } catch {} }
+        if (m) { try { key = `cyberdrop:${new URL(m[0]).origin}`; } catch { } }
     }
 
     const k = String(key || '').trim();
@@ -8078,7 +8097,7 @@ async function cyberdropWarmupOnce(key, warmUrl, ms = CYBERDROP_WARMUP_DEFAULT_M
     if (!k || !u) return;
 
     if (cyberdropWarmupAttempted.has(k)) {
-        try { await cyberdropWarmupAttempted.get(k); } catch (e) {}
+        try { await cyberdropWarmupAttempted.get(k); } catch (e) { }
         return;
     }
 
@@ -8087,7 +8106,7 @@ async function cyberdropWarmupOnce(key, warmUrl, ms = CYBERDROP_WARMUP_DEFAULT_M
             try {
                 const tab = GM_openInTab(u, { active: false, insert: true, setParent: true });
                 setTimeout(() => {
-                    try { xfpdCloseTabHandle(tab); } catch (e) {}
+                    try { xfpdCloseTabHandle(tab); } catch (e) { }
                     resolve();
                 }, Math.max(250, ms));
             } catch (e) {
@@ -8132,7 +8151,7 @@ async function cyberdrop_helper(apiUrl) {
                 const j = JSON.parse(r.responseText);
                 const direct = j && (j.url || (j.data && j.data.url) || (j.file && j.file.url));
                 if (direct && typeof direct === 'string') return direct;
-            } catch (e) {}
+            } catch (e) { }
         }
         await new Promise(res => setTimeout(res, 800));
     }
@@ -8412,6 +8431,9 @@ async function processThreadFromHTML(url) {
                 const totalPB = document.createElement('div');
                 statusContainer.append(statusLabel, filePB, totalPB);
 
+                console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
+                log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
+
                 await downloadPost(
                     parsedPost,
                     parsedHosts,
@@ -8423,9 +8445,11 @@ async function processThreadFromHTML(url) {
                     threadTitle
                 );
 
+                console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
                 totalProcessed++;
             } catch (err) {
-                console.error(`Erro ao baixar post (ignorado):`, err);
+                console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
+                log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
             }
         }
 
@@ -8477,7 +8501,7 @@ let isDownloadingAll = false;
 let skipCurrentThread = false;
 
 (function () {
-    try { if (window.__XFPD_ABORT_MAIN) return; } catch (e) {}
+    try { if (window.__XFPD_ABORT_MAIN) return; } catch (e) { }
 
     window.addEventListener('beforeunload', e => {
         if (processing.find(p => p.processing)) {
@@ -8504,7 +8528,7 @@ let skipCurrentThread = false;
 
         init.injectCustomStyles();
 
-                // If we are on the watched threads page, add a "Download Watched" button.
+        // If we are on the watched threads page, add a "Download Watched" button.
         if (document.location.pathname.startsWith('/watched/threads')) {
             const btnWatch = addDownloadWatchedButton();
 
@@ -8584,7 +8608,7 @@ let skipCurrentThread = false;
                 generateLog: false,
                 skipDuplicates: false,
                 skipDownload: false,
-                verifyBunkrLinks: false,                output: [],
+                verifyBunkrLinks: false, output: [],
             };
 
             const parsedPost = parsers.thread.parsePost(post);
@@ -8711,19 +8735,19 @@ let skipCurrentThread = false;
             parsedPosts
                 .filter(p => p.parsedHosts.length)
                 .forEach(post => {
-                const { postId, postNumber, textContent } = post.parsedPost;
+                    const { postId, postNumber, textContent } = post.parsedPost;
 
-                selectedPosts.push({ post, enabled: false });
+                    selectedPosts.push({ post, enabled: false });
 
-                const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
+                    const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
 
-                let defaultPostContent = textContent.trim().replace('â€‹', '');
+                    let defaultPostContent = textContent.trim().replace('â€‹', '');
 
-                const ellipsedText = h.limit(defaultPostContent === '' ? threadTitle : defaultPostContent, 20);
+                    const ellipsedText = h.limit(defaultPostContent === '' ? threadTitle : defaultPostContent, 20);
 
-                const summary = `<a id="post-content-${postId}" href="#post-${postId}" style="color: #3DB7C7"> ${ellipsedText} </a>`;
-                html += ui.forms.createCheckbox(`config-download-post-${postId}`, `Post #${postNumber} ${summary}`, false);
-            });
+                    const summary = `<a id="post-content-${postId}" href="#post-${postId}" style="color: #3DB7C7"> ${ellipsedText} </a>`;
+                    html += ui.forms.createCheckbox(`config-download-post-${postId}`, `Post #${postNumber} ${summary}`, false);
+                });
 
             html = `${ui.forms.createRow(ui.forms.createLabel('Post Selection'))} ${html}`;
             ui.tooltip(btnDownloadPage, ui.forms.config.page.createForm(color, html), {
@@ -8733,45 +8757,45 @@ let skipCurrentThread = false;
                     parsedPosts
                         .filter(p => p.parsedHosts.length)
                         .forEach(post => {
-                        const { postId, contentContainer } = post.parsedPost;
-                        ui.tooltip(
-                            `#post-content-${postId}`,
-                            `<div style="overflow-y: auto; background: #242323; padding: 16px; width: 500px; max-height: 500px">
+                            const { postId, contentContainer } = post.parsedPost;
+                            ui.tooltip(
+                                `#post-content-${postId}`,
+                                `<div style="overflow-y: auto; background: #242323; padding: 16px; width: 500px; max-height: 500px">
                           ${contentContainer.innerHTML}
                          </div>`,
-                            { placement: 'right', offset: [10, 15] },
-                        );
+                                { placement: 'right', offset: [10, 15] },
+                            );
 
-                        document.querySelector(`#config-download-post-${postId}`).addEventListener('change', e => {
-                            const selectedPost = selectedPosts.find(s => s.post.parsedPost.postId === postId);
-                            selectedPost.enabled = e.target.checked;
+                            document.querySelector(`#config-download-post-${postId}`).addEventListener('change', e => {
+                                const selectedPost = selectedPosts.find(s => s.post.parsedPost.postId === postId);
+                                selectedPost.enabled = e.target.checked;
 
-                            const checkAllCB = h.element('#config-toggle-all-posts');
-                            checkAllCB.checked = selectedPosts.filter(s => s.enabled).length === parsedPosts.length;
+                                const checkAllCB = h.element('#config-toggle-all-posts');
+                                checkAllCB.checked = selectedPosts.filter(s => s.enabled).length === parsedPosts.length;
+                            });
+
+                            h.element('#config-toggle-all-posts').addEventListener('change', async e => {
+                                e.preventDefault();
+
+                                const checked = e.target.checked;
+
+
+                                const postCheckboxes = parsedPosts
+                                    .filter(p => p.parsedHosts.length)
+                                    .map(p => p.parsedPost)
+                                    .map(p => h.element(`#config-download-post-${p.postId}`))
+                                    .filter(Boolean);
+
+                                const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
+                                const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
+
+                                if (checked) {
+                                    unCheckedPostCheckboxes.forEach(c => c.click());
+                                } else {
+                                    checkedPostCheckboxes.forEach(c => c.click());
+                                }
+                            });
                         });
-
-                        h.element('#config-toggle-all-posts').addEventListener('change', async e => {
-                            e.preventDefault();
-
-                            const checked = e.target.checked;
-
-
-                            const postCheckboxes = parsedPosts
-                                .filter(p => p.parsedHosts.length)
-                                .map(p => p.parsedPost)
-                                .map(p => h.element(`#config-download-post-${p.postId}`))
-                                .filter(Boolean);
-
-                            const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
-                            const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
-
-                            if (checked) {
-                                unCheckedPostCheckboxes.forEach(c => c.click());
-                            } else {
-                                checkedPostCheckboxes.forEach(c => c.click());
-                            }
-                        });
-                    });
                 },
             });
         }
