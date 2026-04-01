@@ -2133,7 +2133,7 @@ const resolvers = [
 
             const posts = [];
 
-            console.log(`[coomer.st] Resolving profile: ${profileId}`);
+            // console.log(`[coomer.st] Resolving profile: ${profileId}`);
 
             let page = 1;
 
@@ -2156,7 +2156,7 @@ const resolvers = [
                     finalURL = `${host}${nextPage.getAttribute('href')}`;
                 }
 
-                console.log(`[coomer.st] Resolved page: ${page}`);
+                // console.log(`[coomer.st] Resolved page: ${page}`);
 
                 page++;
             } while (nextPage);
@@ -2209,7 +2209,7 @@ const resolvers = [
                     );
                 }
 
-                console.log(`[coomer.st] Resolved post ${index} / ${posts.length}`);
+                // console.log(`[coomer.st] Resolved post ${index} / ${posts.length}`);
 
                 index++;
             }
@@ -2296,7 +2296,7 @@ const resolvers = [
                 }
 
                 if (!authenticated) {
-                    log.host.error(postId, `::Could not resolve password protected album::: ${url}`, 'jpg6.su');
+                    // log.host.error(postId, `::Could not resolve password protected album::: ${url}`, 'jpg6.su');
                     return null;
                 }
             }
@@ -3102,30 +3102,30 @@ const resolvers = [
                 let props = await apiContents(id, null);
 
                 if (props && props.status === 'error-notFound') {
-                    log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
+                    // log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
                     return null;
                 }
 
                 if (props && props.status === 'error-notPublic') {
-                    log.host.error(postId, `::Album not public::: ${urlOrId}`, 'gofile.io');
+                    // log.host.error(postId, `::Album not public::: ${urlOrId}`, 'gofile.io');
                     return null;
                 }
 
                 if (props && props.status === 'error-passwordRequired') {
-                    log.host.info(postId, `::Album requires password::: ${urlOrId}`, 'gofile.io');
+                    // log.host.info(postId, `::Album requires password::: ${urlOrId}`, 'gofile.io');
 
                     if (!spoilers || !spoilers.length) {
                         return props;
                     }
 
-                    log.host.info(postId, `::Trying with ${spoilers.length} available password(s)::`, 'gofile.io');
+                    // log.host.info(postId, `::Trying with ${spoilers.length} available password(s)::`, 'gofile.io');
 
                     for (const spoiler of spoilers) {
                         const hash = sha256(spoiler);
                         const attempt = await apiContents(id, hash);
 
                         if (attempt && attempt.status === 'ok') {
-                            log.host.info(postId, `::Successfully authenticated with:: ${spoiler}`, 'gofile.io');
+                            // log.host.info(postId, `::Successfully authenticated with:: ${spoiler}`, 'gofile.io');
                             props = attempt;
                             break;
                         }
@@ -3141,9 +3141,9 @@ const resolvers = [
 
             if (!props || props.status !== 'ok' || !props.data) {
                 if (props && props.status === 'error-passwordRequired') {
-                    log.host.error(postId, `::Password required (no valid password found)::: ${url}`, 'gofile.io');
+                    // log.host.error(postId, `::Password required (no valid password found)::: ${url}`, 'gofile.io');
                 } else {
-                    log.host.error(postId, `::Unable to resolve album::: ${url}`, 'gofile.io');
+                    // log.host.error(postId, `::Unable to resolve album::: ${url}`, 'gofile.io');
                 }
 
                 return {
@@ -3208,7 +3208,7 @@ const resolvers = [
             resolved.push(...(await getChildAlbums(props, spoilers)));
 
             if (!resolved.length) {
-                log.host.error(postId, `::Empty album::: ${url}`, 'gofile.io');
+                // log.host.error(postId, `::Empty album::: ${url}`, 'gofile.io');
             }
 
             return {
@@ -5564,7 +5564,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         }
     } catch (e) { }
 
-    log.post.info(postId, '::Url resolution started::', postNumber);
+    // log.post.info(postId, '::Url resolution started::', postNumber);
 
     for (const host of enabledHosts.filter(host => host.resources.length)) {
         const resources = host.resources;
@@ -5617,12 +5617,12 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     if (host.name === 'Cyberdrop' && /cyberdrop\.[a-z]{2,}\/a\//i.test(String(resource))) {
                         continue;
                     }
-                    log.post.error(postId, `::Error resolving::: ${resource}`, postNumber);
+                    // log.post.error(postId, `::Error resolving::: ${resource}`, postNumber);
                     continue;
                 }
 
                 if (h.isNullOrUndef(r)) {
-                    log.post.error(postId, `::Could not resolve::: ${resource}`, postNumber);
+                    // log.post.error(postId, `::Could not resolve::: ${resource}`, postNumber);
                     continue;
                 }
 
@@ -5675,7 +5675,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         log.separator(postId);
     }
 
-    log.post.info(postId, '::Url resolution completed::', postNumber);
+    // log.post.info(postId, '::Url resolution completed::', postNumber);
 
     let totalDownloadable = resolved.filter(r => r.url).length;
 
@@ -6262,7 +6262,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             // Unzipped: if there is ANY non-image (mixed or video-only) -> DIRECT all.
                             if (hasNonImage) {
                                 for (const it of items) it.forceDirect = true;
-                                log.post.info(postId, `::Filester album (unzipped) has non-image -> DIRECT all (${info})::: ${albumUrl}`, postNumber);
+                                // log.post.info(postId, `::Filester album (unzipped) has non-image -> DIRECT all (${info})::: ${albumUrl}`, postNumber);
                             }
                             continue;
                         }
@@ -6275,9 +6275,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     const kind = filesterClassify(it.url);
                                     if (kind !== 'image') it.forceDirect = true;
                                 }
-                                log.post.info(postId, `::Filester mixed album -> ZIP images, DIRECT others (${info})::: ${albumUrl}`, postNumber);
+                                // log.post.info(postId, `::Filester mixed album -> ZIP images, DIRECT others (${info})::: ${albumUrl}`, postNumber);
                             } else {
-                                log.post.info(postId, `::Filester mixed album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`, postNumber);
+                                // log.post.info(postId, `::Filester mixed album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`, postNumber);
                             }
                         } else if (!hasImage && hasNonImage) {
                             // Non-image only (videos and/or other file types)
@@ -6285,17 +6285,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                             if (!canZipAll) {
                                 for (const it of items) it.forceDirect = true;
-                                log.post.info(
-                                    postId,
-                                    `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album >~1.6GB or unknown -> DIRECT all (${info})::: ${albumUrl}`,
-                                    postNumber
-                                );
+                                // log.post.info(
+                                //     postId,
+                                //     `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album >~1.6GB or unknown -> DIRECT all (${info})::: ${albumUrl}`,
+                                //     postNumber
+                                // );
                             } else {
-                                log.post.info(
-                                    postId,
-                                    `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`,
-                                    postNumber
-                                );
+                                // log.post.info(
+                                //     postId,
+                                //     `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`,
+                                //     postNumber
+                                // );
                             }
                         }
                         // Images-only album: keep default behavior.
@@ -6384,7 +6384,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     } catch (e) { }
                                     if (!filesterNoTabTokenLogged) {
                                         filesterNoTabTokenLogged = true;
-                                        log.post.info(postId, `::Filester slug->token->cache (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
+                                        // log.post.info(postId, `::Filester slug->token->cache (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
                                     }
 
                                     try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) { }
@@ -6446,7 +6446,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|selti-delivery\.ru/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
 
                     cyberdropDirectWarmupDone = true;
-                    log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
+                    // log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
                     await cyberdropWarmupOnce(cyberOrigin, cyberFilePage, CYBERDROP_WARMUP_MS);
                 }
 
@@ -6468,7 +6468,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             const isHtml = /text\/html|application\/xhtml\+xml/i.test(ct);
                             if ((badStatus || isHtml) && pass === 1 && !gofileWarmupAttempted.has(url)) {
                                 gofileWarmupAttempted.add(url);
-                                log.post.info(postId, `::GoFile warm-up -> open tab (${GOFILE_WARMUP_MS}ms) then retry [1/2]::: ${url}`, postNumber);
+                                // log.post.info(postId, `::GoFile warm-up -> open tab (${GOFILE_WARMUP_MS}ms) then retry [1/2]::: ${url}`, postNumber);
                                 gofileWarmupOpenTab(url);
                                 setTimeout(() => startDownload(resource, 2), GOFILE_WARMUP_MS);
                                 return;
@@ -6476,7 +6476,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         }
 
                         if (postSettings.zipped) {
-                            log.post.info(postId, `::Zipped ON -> saving standalone (not in ZIP)::: ${url}`, postNumber);
+                            // log.post.info(postId, `::Zipped ON -> saving standalone (not in ZIP)::: ${url}`, postNumber);
                         }
 
                         // Try to reuse the existing GoFile filename hints, if available.
@@ -7774,7 +7774,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 return;
                             }
 
-                            log.post.error(postId, `::Turbo failed (stalled after retries)::: ${url}`, postNumber);
+                            // log.post.error(postId, `::Turbo failed (stalled after retries)::: ${url}`, postNumber);
 
                             if (completed < totalDownloadable) {
                                 completed++;
@@ -7829,17 +7829,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 const elapsed = Date.now() - batchStartTime;
                 if (elapsed > BATCH_MAX_TIME_MS) {
-                    log.post.error(postId, `::BATCH TIMEOUT (30min) - forçando continuação (post #${postNumber})::`, postNumber);
-                    console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout 30min`);
+                    // log.post.error(postId, `::BATCH TIMEOUT (30min) - forçando continuação (post #${postNumber})::`, postNumber);
+                    // console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout 30min`);
                     break;
                 }
 
-                if (Math.floor(elapsed / 10000) % 10 === 0 && elapsed > 0) {
-                    console.log(`[XFPD BATCH] Post #${postNumber} | ${completedBatchedDownloads}/${batch.length} concluídos | ${Math.floor(elapsed / 1000)}s`);
-                }
+                // if (Math.floor(elapsed / 10000) % 10 === 0 && elapsed > 0) {
+                //     console.log(`[XFPD BATCH] Post #${postNumber} | ${completedBatchedDownloads}/${batch.length} concluídos | ${Math.floor(elapsed / 1000)}s`);
+                // }
             }
 
-            log.post.info(postId, `::Batch finalizado (${completedBatchedDownloads}/${batch.length}) - continuando...::`, postNumber);
+            // log.post.info(postId, `::Batch finalizado (${completedBatchedDownloads}/${batch.length}) - continuando...::`, postNumber);
 
             if (completedBatchedDownloads >= batch.length) {
                 completedBatchedDownloads = 0;
@@ -7952,7 +7952,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     },
                                     onerror: response => {
                                         try { URL.revokeObjectURL(url); } catch (e) { }
-                                        console.log(`Error writing generated.zip to disk. There may be more details below.`);
+                                        // console.log(`Error writing generated.zip to disk. There may be more details below.`);
                                         console.log(response);
                                         blob = null;
                                         resolve();
@@ -8161,9 +8161,10 @@ async function cyberdrop_helper(apiUrl) {
 
 
 async function getAllWatchedThreads() {
-    let urls = [];
+    let threads = [];
     let currentPage = 1;
     let allPagesProcessed = false;
+    let detectedLastPage = null;
     const isSMG = window.location.hostname.includes('socialmediagirls');
     const baseUrl = isSMG
         ? 'https://forums.socialmediagirls.com/watched/threads'
@@ -8173,7 +8174,7 @@ async function getAllWatchedThreads() {
 
     while (!allPagesProcessed) {
         try {
-            const pageUrl = currentPage === 1 ? baseUrl : `${baseUrl}/page-${currentPage}`;
+            const pageUrl = currentPage === 1 ? baseUrl : `${baseUrl}?page=${currentPage}`;
             console.log(`Collecting page ${currentPage} of watched: ${pageUrl}`);
 
             const { source } = await h.http.get(pageUrl);
@@ -8185,16 +8186,20 @@ async function getAllWatchedThreads() {
             const parser = new DOMParser();
             const doc = parser.parseFromString(source, 'text/html');
 
-            const threadSelectors = [
-                'a[href^="https://simpcity.cr/threads"]',
-                'a[href^="/threads/"]',
-                'a[href^="https://forums.socialmediagirls.com/threads"]',
-            ];
-            const anchors = [...doc.querySelectorAll(threadSelectors.join(','))];
+            // Prefer the actual thread title links inside watched list items.
+            // Fallback keeps compatibility in case markup changes.
+            let anchors = [...doc.querySelectorAll('.structItem-title a[href*="/threads/"]')];
+            if (!anchors.length) {
+                anchors = [...doc.querySelectorAll('a[href*="/threads/"]')]
+                    .filter(a => !/\/threads\/[^\/]+\.\d+\/(?:latest|unread)/i.test(a.getAttribute('href') || ''));
+            }
 
-            const pageUrls = [...new Set(anchors.map(a => {
+            const pageThreads = [...new Map(anchors.map(a => {
                 try {
                     let url = a.href;
+                    const title = (a.textContent || a.innerText || '').trim();
+
+                    if (!title) return null;
 
                     url = url
                         .replace(/\/unread.*$/, '')
@@ -8203,22 +8208,49 @@ async function getAllWatchedThreads() {
                         .replace(/#.*$/, '')
                         .replace(/\?.*$/, '');
 
-
                     if (!url.endsWith('/')) {
                         url += '/';
                     }
 
-                    return url;
+                    return [url, { url, title }];
                 } catch {
                     return null;
                 }
-            }).filter(url => url !== null))];
+            }).filter(item => item !== null)).values()];
 
-            urls.push(...pageUrls);
-            urls = [...new Set(urls)];
+            threads.push(...pageThreads);
+            threads = [...new Map(threads.map(t => [t.url, t])).values()];
 
-            const nextPageLink = doc.querySelector('a[href*="page-' + (currentPage + 1) + '"]');
-            if (!nextPageLink) {
+            // Detect final watched page once and iterate until it.
+            if (detectedLastPage == null) {
+                detectedLastPage = 1;
+                const pageNavLinks = [...doc.querySelectorAll('.pageNav-main a[href*="/watched/threads?page="], .pageNav-main a.pageNav-page')];
+                for (const link of pageNavLinks) {
+                    const href = link.getAttribute('href') || '';
+                    const fromHref = /[?&]page=(\d+)/i.exec(href);
+                    const fromText = /^\d+$/.test((link.textContent || '').trim()) ? parseInt((link.textContent || '').trim(), 10) : null;
+                    const pageNum = fromHref ? parseInt(fromHref[1], 10) : fromText;
+                    if (pageNum && pageNum > detectedLastPage) detectedLastPage = pageNum;
+                }
+
+                // pageNavSimple: "1 of 14"
+                if (detectedLastPage <= 1) {
+                    const pageSimple = (doc.querySelector('.pageNavSimple-el--current')?.textContent || '').trim();
+                    const simpleMatch = /(\d+)\s*(?:of|de|\/)\s*(\d+)/i.exec(pageSimple);
+                    if (simpleMatch && simpleMatch[2]) {
+                        const max = parseInt(simpleMatch[2], 10);
+                        if (Number.isFinite(max) && max > detectedLastPage) detectedLastPage = max;
+                    }
+                }
+
+                // page-jump input max="14"
+                if (detectedLastPage <= 1) {
+                    const jumpMax = parseInt(doc.querySelector('.js-pageJumpPage')?.getAttribute('max') || '', 10);
+                    if (Number.isFinite(jumpMax) && jumpMax > detectedLastPage) detectedLastPage = jumpMax;
+                }
+            }
+
+            if (currentPage >= (detectedLastPage || 1)) {
                 allPagesProcessed = true;
                 console.log(`Last page of watched (${currentPage})`);
             }
@@ -8231,8 +8263,182 @@ async function getAllWatchedThreads() {
         }
     }
 
-    console.log(`Total of pages: ${urls.length}`);
-    return urls;
+    console.log(`Total threads found: ${threads.length}`);
+    return threads;
+}
+
+/**
+ * Worker Pool Manager for parallel downloads
+ */
+const WorkerPool = {
+    workers: [],
+    queue: [],
+    activeCount: 0,
+    maxWorkers: 3, // número máximo de workers simultâneos
+
+    init(maxWorkers = 3) {
+        this.maxWorkers = maxWorkers;
+        this.workers = [];
+        this.queue = [];
+        this.activeCount = 0;
+    },
+
+    async addTask(task) {
+        return new Promise((resolve, reject) => {
+            this.queue.push({ task, resolve, reject });
+            this.processQueue();
+        });
+    },
+
+    processQueue() {
+        while (this.activeCount < this.maxWorkers && this.queue.length > 0) {
+            const { task, resolve, reject } = this.queue.shift();
+            this.activeCount++;
+
+            task()
+                .then(resolve)
+                .catch(reject)
+                .finally(() => {
+                    this.activeCount--;
+                    this.processQueue();
+                });
+        }
+    }
+};
+
+/**
+ * UI para seleção de threads, ordem e filtro
+ */
+function createWatchedThreadsUI(threads) {
+    const container = document.createElement('div');
+    container.id = 'watched-threads-controls';
+    container.style.cssText = `
+        margin: 10px 0;
+        padding: 15px;
+        border-radius: 4px;
+        font-family: Arial, sans-serif;
+    `;
+
+    // ===== SELECT 1: Threads com Checkboxes =====
+    const threadSelectLabel = document.createElement('label');
+    threadSelectLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 10px;';
+    threadSelectLabel.textContent = 'Threads para baixar:';
+
+    const threadCheckboxContainer = document.createElement('div');
+    threadCheckboxContainer.id = 'thread-checkboxes';
+    threadCheckboxContainer.style.cssText = `
+        border: 1px solid #ddd;
+        padding: 10px;
+        border-radius: 4px;
+        max-height: 200px;
+        overflow-x: auto;
+        margin-bottom: 15px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    `;
+
+    threads.forEach(thread => {
+        const label = document.createElement('label');
+        label.style.cssText = 'display: block; margin: 5px 0; cursor: pointer;';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = thread.url;
+        checkbox.checked = true; // padrão: todas selecionadas
+        checkbox.className = 'thread-checkbox';
+        checkbox.style.marginRight = '8px';
+
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(thread.title || 'Sem título'));
+
+        threadCheckboxContainer.appendChild(label);
+    });
+
+    // Botão Select All / Deselect All
+    const threadToggleBtn = document.createElement('button');
+    threadToggleBtn.textContent = 'Desselecionar Tudo';
+    threadToggleBtn.style.cssText = `
+        padding: 5px 10px;
+        margin-bottom: 15px;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    `;
+    
+    let allThreadsSelected = true;
+    threadToggleBtn.addEventListener('click', () => {
+        allThreadsSelected = !allThreadsSelected;
+        document.querySelectorAll('.thread-checkbox').forEach(cb => {
+            cb.checked = allThreadsSelected;
+        });
+        threadToggleBtn.textContent = allThreadsSelected ? 'Desselecionar Tudo' : 'Selecionar Tudo';
+    });
+
+    // ===== SELECT 2: Ordem das Threads =====
+    const orderLabel = document.createElement('label');
+    orderLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 5px;';
+    orderLabel.textContent = 'Ordem das threads:';
+
+    const orderSelect = document.createElement('select');
+    orderSelect.id = 'thread-order-select';
+    orderSelect.style.cssText = `
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        width: 100%;
+    `;
+
+    const orderOptions = [
+        { value: 'recent', text: 'Recém atualizadas (padrão)' },
+        { value: 'oldest', text: 'Menos atualizadas' }
+    ];
+
+    orderOptions.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.text;
+        orderSelect.appendChild(option);
+    });
+
+    // ===== SELECT 3: Filtro (Sort) =====
+    const filterLabel = document.createElement('label');
+    filterLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 5px;';
+    filterLabel.textContent = 'Filtro dentro da thread:';
+
+    const filterSelect = document.createElement('select');
+    filterSelect.id = 'thread-filter-select';
+    filterSelect.style.cssText = `
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        width: 100%;
+    `;
+
+    const filterOptions = [
+        { value: 'date', text: 'Sort by date' },
+        { value: 'reaction_score', text: 'Sort by reaction score' }
+    ];
+
+    filterOptions.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.text;
+        filterSelect.appendChild(option);
+    });
+
+    // Montar container
+    container.appendChild(threadSelectLabel);
+    container.appendChild(threadCheckboxContainer);
+    container.appendChild(threadToggleBtn);
+    container.appendChild(orderLabel);
+    container.appendChild(orderSelect);
+    container.appendChild(filterLabel);
+    container.appendChild(filterSelect);
+
+    return { container, orderSelect, filterSelect };
 }
 
 /**
@@ -8265,13 +8471,16 @@ const addDownloadWatchedButton = () => {
     return downloadAllButton;
 };
 
-async function processThreadFromHTML(url) {
+async function processThreadFromHTML(url, filterType = 'date') {
     try {
-        const baseUrl = url.replace(/\/page-\d+/, '').replace(/\/$/, '');
+        const baseUrl = url.replace(/\/page-\d+/, '').replace(/\/$/, '').split('?')[0];
 
-        console.log(`Detecting the last page of the thread: ${baseUrl}`);
+        // Adicionar filtro na URL se for reaction_score
+        const urlWithFilter = filterType === 'reaction_score' ? `${baseUrl}?order=reaction_score` : baseUrl;
 
-        const { source: firstPageSource } = await h.http.get(baseUrl).catch(e => ({ source: null }));
+        console.log(`Detecting the last page of the thread: ${baseUrl} (Filter: ${filterType})`);
+
+        const { source: firstPageSource } = await h.http.get(urlWithFilter).catch(e => ({ source: null }));
         if (!firstPageSource) {
             console.error(`Failed to load the base page: ${baseUrl}`);
             return;
@@ -8341,7 +8550,13 @@ async function processThreadFromHTML(url) {
             }
 
             try {
-                const pageUrl = page === 1 ? baseUrl : `${baseUrl}/page-${page}`;
+                let pageUrl = page === 1 ? baseUrl : `${baseUrl}/page-${page}`;
+                
+                // Adicionar filtro em cada página
+                if (filterType === 'reaction_score') {
+                    pageUrl += pageUrl.includes('?') ? '&order=reaction_score' : '?order=reaction_score';
+                }
+                
                 console.log(`Collecting posts from page ${page}: ${pageUrl}`);
 
                 const { source } = await h.http.get(pageUrl).catch(e => ({ source: null }));
@@ -8402,7 +8617,7 @@ async function processThreadFromHTML(url) {
 
         allPostData.sort((a, b) => b.timestamp - a.timestamp);
 
-        console.log(`Total collected: ${allPostData.length} posts with valid hosts. Starting downloads (most recent → oldest)`);
+        // console.log(`Total collected: ${allPostData.length} posts with valid hosts. Starting downloads (most recent → oldest)`);
 
         let totalProcessed = 0;
 
@@ -8431,8 +8646,8 @@ async function processThreadFromHTML(url) {
                 const totalPB = document.createElement('div');
                 statusContainer.append(statusLabel, filePB, totalPB);
 
-                console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
-                log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
+                // console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
+                // log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
 
                 await downloadPost(
                     parsedPost,
@@ -8445,17 +8660,17 @@ async function processThreadFromHTML(url) {
                     threadTitle
                 );
 
-                console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
+                // console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
                 totalProcessed++;
             } catch (err) {
-                console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
-                log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
+                // console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
+                // log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
             }
         }
 
-        console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
+        // console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
     } catch (fatalErr) {
-        console.error('Erro fatal na thread', url, fatalErr);
+        // console.error('Erro fatal na thread', url, fatalErr);
     }
 }
 // ---- Download All Pages helper ----
@@ -8491,7 +8706,7 @@ async function downloadAllPagesOfCurrentThread() {
     const threadUrl = location.href.replace(/\/page-\d+/, '').split('#')[0];
     console.log(`Iniciando download de todas as páginas da thread: ${threadUrl}`);
     await processThreadFromHTML(threadUrl);
-    console.log('Thread finalizada');
+    // console.log('Thread finalizada');
 }
 
 
@@ -8530,6 +8745,10 @@ let skipCurrentThread = false;
 
         // If we are on the watched threads page, add a "Download Watched" button.
         if (document.location.pathname.startsWith('/watched/threads')) {
+            let threadUIControls = null;
+            let allThreads = [];
+            let isLoadingWatchedControls = false;
+
             const btnWatch = addDownloadWatchedButton();
 
             const btnSkip = document.createElement('button');
@@ -8554,43 +8773,121 @@ let skipCurrentThread = false;
                         if (isDownloadingAll) btnSkip.textContent = 'Skip Current Thread';
                     }, 2000);
                 } else {
-                    log.write(null, 'Nenhum download em massa rodando para skip', 'WARN');
+                    // log.write(null, 'Nenhum download em massa rodando para skip', 'WARN');
                 }
             });
 
+            const ensureWatchedControlsLoaded = async () => {
+                if (threadUIControls || isLoadingWatchedControls) return;
+                isLoadingWatchedControls = true;
+                try {
+                    console.log('Carregando threads watched...');
+                    allThreads = await getAllWatchedThreads();
+
+                    if (allThreads.length === 0) {
+                        log.write(null, 'Nenhuma thread watched encontrada.', 'WARN');
+                        return;
+                    }
+
+                    const { container, orderSelect, filterSelect } = createWatchedThreadsUI(allThreads);
+                    threadUIControls = { container, orderSelect, filterSelect };
+
+                    const parent = btnWatch.parentNode;
+                    if (parent) {
+                        if (btnSkip.nextSibling) {
+                            parent.insertBefore(container, btnSkip.nextSibling);
+                        } else {
+                            parent.appendChild(container);
+                        }
+                    }
+                } catch (err) {
+                    console.error('Erro ao montar controles de watched threads:', err);
+                } finally {
+                    isLoadingWatchedControls = false;
+                }
+            };
+
+            // Renderiza os selects automaticamente ao abrir a página de watched.
+            await ensureWatchedControlsLoaded();
 
             btnWatch.addEventListener('click', async e => {
                 e.preventDefault();
 
                 if (isDownloadingAll) {
-                    log.write(null, 'Download em massa jÃ¡ em andamento', 'WARN');
+                    // log.write(null, 'Download em massa jÃ¡ em andamento', 'WARN');
                     return;
                 }
+
+                if (!threadUIControls) {
+                    await ensureWatchedControlsLoaded();
+                }
+
+                if (!threadUIControls || !allThreads.length) {
+                    alert('Não foi possível carregar as threads watched.');
+                    return;
+                }
+
+                // Esperar um tick para deixar a UI atualizar
+                await h.delayedResolve(500);
+
+                // Obter seleções
+                const selectedThreadUrls = Array.from(document.querySelectorAll('.thread-checkbox:checked'))
+                    .map(cb => cb.value);
+
+                if (selectedThreadUrls.length === 0) {
+                    alert('Nenhuma thread selecionada.');
+                    return;
+                }
+
+                const orderValue = threadUIControls?.orderSelect?.value || 'recent';
+                const filterValue = threadUIControls?.filterSelect?.value || 'date';
 
                 isDownloadingAll = true;
                 skipCurrentThread = false;
                 btnSkip.disabled = false;
                 btnSkip.textContent = 'Skip Current Thread';
 
+                // // Ocultar controles durante download
+                // if (threadUIControls && threadUIControls.container) {
+                //     threadUIControls.container.style.display = 'none';
+                // }
+
                 try {
-                    const urls = await getAllWatchedThreads();
+                    // Filtrar threads de acordo com seleção
+                    let urlsToProcess = allThreads
+                        .filter(t => selectedThreadUrls.includes(t.url))
+                        .map(t => t.url);
 
-                    log.write(null, `Iniciando download de ${urls.length} threads watched`, 'INFO');
+                    // Aplicar ordem
+                    if (orderValue === 'oldest') {
+                        urlsToProcess = urlsToProcess.reverse();
+                    }
 
-                    for (const url of urls) {
+                    log.write(null, `Iniciando download de ${urlsToProcess.length} threads watched (Filtro: ${filterValue})`, 'INFO');
+
+                    // Inicializar worker pool
+                    WorkerPool.init(3);
+
+                    // Processar threads com worker pool
+                    for (const url of urlsToProcess) {
                         if (skipCurrentThread) {
                             log.write(null, `Pulando thread atual: ${url}`, 'INFO');
                             skipCurrentThread = false;
                             continue;
                         }
 
-                        log.write(null, `Processando thread: ${url}`, 'INFO');
-                        await processThreadFromHTML(url);
+                        log.write(null, `Processando thread: ${url} (Filtro: ${filterValue})`, 'INFO');
+                        
+                        // Adicionar task ao worker pool
+                        await WorkerPool.addTask(async () => {
+                            await processThreadFromHTML(url, filterValue);
+                        });
                     }
 
-                    log.write(null, 'Download de todos watched threads concluÃ­do', 'INFO');
+                    log.write(null, 'Download de todos watched threads concluído', 'INFO');
                 } catch (err) {
                     log.write(null, `Erro durante download em massa: ${err.message}`, 'ERROR');
+                    console.error(err);
                 } finally {
                     isDownloadingAll = false;
                     btnSkip.disabled = true;
