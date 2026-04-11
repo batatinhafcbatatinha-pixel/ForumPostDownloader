@@ -5464,15 +5464,71 @@ const setProcessing = (isProcessing, postId) => {
         processing.push({ postId, processing: isProcessing });
     }
 };
+// Watched downloads runtime controls.
+const XFPD_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+let xfpdPauseDownloads = false;
+let xfpdSkipPostRequested = false;
+let xfpdSkipPostTargetId = null;
+let xfpdActiveWatchedPost = null;
+let xfpdDownloadTimeoutConfig = { value: 30, unit: 'minutes' };
+
+function xfpdToMs(value, unit) {
+    const v = Number(value);
+    if (!Number.isFinite(v) || v <= 0) return XFPD_DEFAULT_TIMEOUT_MS;
+    const u = String(unit || 'minutes').toLowerCase();
+    if (u === 'seconds') return Math.max(1000, Math.round(v * 1000));
+    if (u === 'hours') return Math.max(1000, Math.round(v * 60 * 60 * 1000));
+    return Math.max(1000, Math.round(v * 60 * 1000));
+}
+
+function xfpdGetDownloadTimeoutMs() {
+    try {
+        return xfpdToMs(xfpdDownloadTimeoutConfig.value, xfpdDownloadTimeoutConfig.unit);
+    } catch (e) {
+        return XFPD_DEFAULT_TIMEOUT_MS;
+    }
+}
+
+async function xfpdWaitWhilePaused() {
+    while (xfpdPauseDownloads) {
+        await h.delayedResolve(250);
+    }
+}
+
+function xfpdSetActiveWatchedPost(postId, postNumber) {
+    xfpdActiveWatchedPost = { postId, postNumber };
+}
+
+function xfpdClearActiveWatchedPost() {
+    xfpdActiveWatchedPost = null;
+}
+
+function xfpdRequestSkipPost(postId) {
+    xfpdSkipPostRequested = true;
+    xfpdSkipPostTargetId = postId == null ? null : String(postId);
+}
+
+function xfpdShouldSkipPost(postId) {
+    if (!xfpdSkipPostRequested) return false;
+    if (!xfpdSkipPostTargetId) return true;
+    return String(postId) === String(xfpdSkipPostTargetId);
+}
+
+function xfpdConsumeSkipPost(postId) {
+    if (!xfpdShouldSkipPost(postId)) return false;
+    xfpdSkipPostRequested = false;
+    xfpdSkipPostTargetId = null;
+    return true;
+}
 
 const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}, overrideThreadTitle = null) => {
     const { postId, postNumber } = parsedPost;
 
     const postSettings = getSettingsCB();
 
-    const DOWNLOAD_TIMEOUT_MS = 300000; // 5 minutes timeout
+    const DOWNLOAD_TIMEOUT_MS = xfpdGetDownloadTimeoutMs();
     const downloadStartTime = Date.now();
-    let downloadTimedOut = false;
+    let stopCurrentPost = false;
 
     const enabledHosts = enabledHostsCB(parsedHosts);
 
@@ -5567,9 +5623,27 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     // log.post.info(postId, '::Url resolution started::', postNumber);
 
     for (const host of enabledHosts.filter(host => host.resources.length)) {
+        if (xfpdShouldSkipPost(postId)) {
+            stopCurrentPost = true;
+            break;
+        }
+
+        if (xfpdPauseDownloads) {
+            await xfpdWaitWhilePaused();
+        }
+
         const resources = host.resources;
 
         for (const resource of resources) {
+            if (xfpdShouldSkipPost(postId)) {
+                stopCurrentPost = true;
+                break;
+            }
+
+            if (xfpdPauseDownloads) {
+                await xfpdWaitWhilePaused();
+            }
+
             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
             h.ui.setText(statusLabel, `Resolving: ${h.limit(resource, 80)}`);
 
@@ -5668,6 +5742,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     addResolved(r, null);
                 }
             }
+        }
+
+        if (stopCurrentPost) {
+            break;
         }
     }
 
@@ -5827,7 +5905,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
     const isFF = window.isFF;
 
-    if (!postSettings.skipDownload) {
+    if (stopCurrentPost || xfpdShouldSkipPost(postId)) {
+        stopCurrentPost = true;
+    }
+
+    if (!postSettings.skipDownload && !stopCurrentPost) {
         const resources = resolved.filter(r => r.url);
         totalDownloadable = resources.length;
 
@@ -6317,6 +6399,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             let filesterNoTabTokenLogged = false;
 
             const startDownload = async (resource, pass = 1) => {
+                if (stopCurrentPost || xfpdShouldSkipPost(postId)) {
+                    return;
+                }
+
                 let { url, host, original, folderName } = resource;
                 const zippedForThis = !!(postSettings.zipped && !(resource && (resource.forceDirect || resource.forceUnzipped)));
                 const isGoFile = isGoFileUrl(url);
@@ -6406,6 +6492,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 let cyberSlug = '';
                 let cyberFilePage = '';
                 const progressKey = isGoFile ? `${url}@@gofilepass${pass}` : url;
+
+                if (xfpdPauseDownloads) {
+                    await xfpdWaitWhilePaused();
+                }
 
                 h.ui.setElProps(statusLabel, { fontWeight: 'normal' });
 
@@ -7812,14 +7902,47 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             };
 
             for (const item of batch) {
+                if (stopCurrentPost || xfpdShouldSkipPost(postId)) {
+                    stopCurrentPost = true;
+                    break;
+                }
                 startDownload(item, 1);
             }
 
+            if (stopCurrentPost) {
+                break;
+            }
+
             log.post.info(postId, `::Iniciando batch de ${batch.length} arquivos (post #${postNumber})::`, postNumber);
-            const batchStartTime = Date.now();
-            const BATCH_MAX_TIME_MS = 30 * 60 * 1000;
+            let batchStartTime = Date.now();
+            const BATCH_MAX_TIME_MS = DOWNLOAD_TIMEOUT_MS;
 
             while (completedBatchedDownloads < batch.length) {
+                if (xfpdShouldSkipPost(postId)) {
+                    stopCurrentPost = true;
+                    log.post.info(postId, `::Skip post solicitado -> abortando post #${postNumber}::`, postNumber);
+
+                    try {
+                        requestProgress.forEach(r => {
+                            try { clearInterval(r.intervalId); } catch (e) { }
+                        });
+                        requests.forEach(r => {
+                            try { r.request && r.request.abort && r.request.abort(); } catch (e) { }
+                        });
+                    } catch (e) { }
+
+                    completedBatchedDownloads = batch.length;
+                    break;
+                }
+
+                if (xfpdPauseDownloads) {
+                    h.ui.setElProps(statusLabel, { color: '#b38600', fontWeight: 'bold' });
+                    h.ui.setText(statusLabel, `Pausado no post #${postNumber}...`);
+                    const pausedAt = Date.now();
+                    await xfpdWaitWhilePaused();
+                    batchStartTime += (Date.now() - pausedAt);
+                }
+
                 await h.delayedResolve(1000);
 
                 const elapsed = Date.now() - batchStartTime;
@@ -7838,6 +7961,12 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
             if (completedBatchedDownloads >= batch.length) {
                 completedBatchedDownloads = 0;
+            }
+
+            if (Date.now() - downloadStartTime > DOWNLOAD_TIMEOUT_MS) {
+                stopCurrentPost = true;
+                log.post.error(postId, `::Timeout do post atingido (${Math.round(DOWNLOAD_TIMEOUT_MS / 1000)}s) -> pulando post::`, postNumber);
+                break;
             }
 
             batch = getNextBatch();
@@ -8314,6 +8443,81 @@ function createWatchedThreadsUI(threads) {
         font-family: Arial, sans-serif;
     `;
 
+    const controlsVisibilityRow = document.createElement('label');
+    controlsVisibilityRow.style.cssText = 'display: block; font-weight: bold; margin-bottom: 10px; cursor: pointer;';
+
+    const controlsVisibilityCheckbox = document.createElement('input');
+    controlsVisibilityCheckbox.type = 'checkbox';
+    controlsVisibilityCheckbox.style.marginRight = '8px';
+    controlsVisibilityCheckbox.checked = false;
+
+    controlsVisibilityRow.appendChild(controlsVisibilityCheckbox);
+    controlsVisibilityRow.appendChild(document.createTextNode('Mostrar opções avançadas de watched'));
+
+    const controlsBody = document.createElement('div');
+    controlsBody.style.display = 'none';
+
+    controlsVisibilityCheckbox.addEventListener('change', () => {
+        controlsBody.style.display = controlsVisibilityCheckbox.checked ? 'block' : 'none';
+    });
+
+    const pauseRow = document.createElement('label');
+    pauseRow.style.cssText = 'display: block; font-weight: bold; margin-bottom: 10px; cursor: pointer;';
+
+    const pauseCheckbox = document.createElement('input');
+    pauseCheckbox.type = 'checkbox';
+    pauseCheckbox.style.marginRight = '8px';
+    pauseCheckbox.checked = false;
+    pauseCheckbox.addEventListener('change', () => {
+        xfpdPauseDownloads = !!pauseCheckbox.checked;
+    });
+
+    pauseRow.appendChild(pauseCheckbox);
+    pauseRow.appendChild(document.createTextNode('Pausar downloads'));
+
+    const timeoutRow = document.createElement('div');
+    timeoutRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 15px;';
+
+    const timeoutLabel = document.createElement('label');
+    timeoutLabel.textContent = 'Tempo máximo por batch:';
+    timeoutLabel.style.cssText = 'font-weight: bold;';
+
+    const timeoutInput = document.createElement('input');
+    timeoutInput.type = 'number';
+    timeoutInput.min = '1';
+    timeoutInput.step = '1';
+    timeoutInput.value = String(xfpdDownloadTimeoutConfig.value || 30);
+    timeoutInput.style.cssText = 'width: 90px; padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+
+    const timeoutUnitSelect = document.createElement('select');
+    timeoutUnitSelect.style.cssText = 'padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+    [
+        { value: 'seconds', text: 'Segundos' },
+        { value: 'minutes', text: 'Minutos' },
+        { value: 'hours', text: 'Horas' },
+    ].forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.text;
+        timeoutUnitSelect.appendChild(option);
+    });
+    timeoutUnitSelect.value = xfpdDownloadTimeoutConfig.unit || 'minutes';
+
+    const syncTimeoutConfig = () => {
+        const nextValue = Number(timeoutInput.value);
+        xfpdDownloadTimeoutConfig = {
+            value: Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 30,
+            unit: timeoutUnitSelect.value || 'minutes',
+        };
+    };
+
+    timeoutInput.addEventListener('change', syncTimeoutConfig);
+    timeoutUnitSelect.addEventListener('change', syncTimeoutConfig);
+
+    timeoutRow.appendChild(timeoutLabel);
+    timeoutRow.appendChild(timeoutInput);
+    timeoutRow.appendChild(timeoutUnitSelect);
+
     // ===== SELECT 1: Threads com Checkboxes =====
     const threadSelectLabel = document.createElement('label');
     threadSelectLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 10px;';
@@ -8351,16 +8555,30 @@ function createWatchedThreadsUI(threads) {
 
     // Botão Select All / Deselect All
     const threadToggleBtn = document.createElement('button');
-    threadToggleBtn.textContent = 'Desselecionar Tudo';
-    threadToggleBtn.style.cssText = `
-        padding: 5px 10px;
-        margin-bottom: 15px;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-    `;
-    
+    threadToggleBtn.textContent = 'Unselect All';
+    threadToggleBtn.style.fontSize = '1.3rem';
+    threadToggleBtn.style.padding = '0';
+    threadToggleBtn.style.paddingRight = '0px';
+    threadToggleBtn.style.paddingLeft = '0px';
+    threadToggleBtn.style.paddingRight = '8px';
+    threadToggleBtn.style.paddingLeft = '8px';
+    threadToggleBtn.style.height = '28px';
+    threadToggleBtn.style.lineHeight = '28px';
+    threadToggleBtn.style.background = '#383c42';
+    threadToggleBtn.style.border = '1px solid rgba(255,255,255,0.12)';
+    threadToggleBtn.style.textTransform = 'initial';
+    threadToggleBtn.style.color = "#287ABD";
+    threadToggleBtn.style.textAlign = "center";
+    threadToggleBtn.addEventListener('mouseover', () => {
+        threadToggleBtn.style.color = "#3396e6";
+        threadToggleBtn.style.background = '#494e55';
+    });
+    threadToggleBtn.addEventListener('mouseout', () => {
+        threadToggleBtn.style.color = "#287ABD";
+        threadToggleBtn.style.background = '#383c42';
+    });
+
+
     let allThreadsSelected = true;
     threadToggleBtn.addEventListener('click', () => {
         allThreadsSelected = !allThreadsSelected;
@@ -8425,15 +8643,20 @@ function createWatchedThreadsUI(threads) {
     });
 
     // Montar container
-    container.appendChild(threadSelectLabel);
-    container.appendChild(threadCheckboxContainer);
-    container.appendChild(threadToggleBtn);
-    container.appendChild(orderLabel);
-    container.appendChild(orderSelect);
-    container.appendChild(filterLabel);
-    container.appendChild(filterSelect);
+    controlsBody.appendChild(pauseRow);
+    controlsBody.appendChild(timeoutRow);
+    controlsBody.appendChild(threadSelectLabel);
+    controlsBody.appendChild(threadCheckboxContainer);
+    controlsBody.appendChild(threadToggleBtn);
+    controlsBody.appendChild(orderLabel);
+    controlsBody.appendChild(orderSelect);
+    controlsBody.appendChild(filterLabel);
+    controlsBody.appendChild(filterSelect);
 
-    return { container, orderSelect, filterSelect };
+    container.appendChild(controlsVisibilityRow);
+    container.appendChild(controlsBody);
+
+    return { container, orderSelect, filterSelect, controlsVisibilityCheckbox, pauseCheckbox, timeoutInput, timeoutUnitSelect };
 }
 
 /**
@@ -8538,6 +8761,10 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
         for (let page = lastPage; page >= 1; page--) {
 
+            if (xfpdPauseDownloads) {
+                await xfpdWaitWhilePaused();
+            }
+
             if (skipCurrentThread) {
                 log.write(null, `Skip detected during page collection. Aborting thread: ${baseUrl}`, 'INFO');
                 skipCurrentThread = false;
@@ -8546,12 +8773,12 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
             try {
                 let pageUrl = page === 1 ? baseUrl : `${baseUrl}/page-${page}`;
-                
+
                 // Adicionar filtro em cada página
                 if (filterType === 'reaction_score') {
                     pageUrl += pageUrl.includes('?') ? '&order=reaction_score' : '?order=reaction_score';
                 }
-                
+
                 console.log(`Collecting posts from page ${page}: ${pageUrl}`);
 
                 const { source } = await h.http.get(pageUrl).catch(e => ({ source: null }));
@@ -8571,6 +8798,10 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 console.log(`Found ${postElements.length} posts on page ${page}`);
 
                 for (const postEl of postElements) {
+                    if (xfpdPauseDownloads) {
+                        await xfpdWaitWhilePaused();
+                    }
+
                     if (skipCurrentThread) {
                         log.write(null, `Skip detected during processement of posts. Aborting thread: ${baseUrl}`, 'INFO');
                         skipCurrentThread = false;
@@ -8617,6 +8848,10 @@ async function processThreadFromHTML(url, filterType = 'date') {
         let totalProcessed = 0;
 
         for (const { parsedPost, parsedHosts } of allPostData) {
+            if (xfpdPauseDownloads) {
+                await xfpdWaitWhilePaused();
+            }
+
             if (skipCurrentThread) {
                 log.write(null, `Skip detected during downloads. Aborting thread: ${baseUrl}`, 'INFO');
                 skipCurrentThread = false;
@@ -8641,19 +8876,30 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 const totalPB = document.createElement('div');
                 statusContainer.append(statusLabel, filePB, totalPB);
 
+                xfpdSetActiveWatchedPost(parsedPost.postId, parsedPost.postNumber);
+
                 // console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
                 // log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
 
-                await downloadPost(
-                    parsedPost,
-                    parsedHosts,
-                    getEnabledHostsCB,
-                    resolvers,
-                    getSettingsCB,
-                    { status: statusLabel, filePB, totalPB },
-                    {},
-                    threadTitle
-                );
+                try {
+                    await downloadPost(
+                        parsedPost,
+                        parsedHosts,
+                        getEnabledHostsCB,
+                        resolvers,
+                        getSettingsCB,
+                        { status: statusLabel, filePB, totalPB },
+                        {},
+                        threadTitle
+                    );
+                } finally {
+                    xfpdClearActiveWatchedPost();
+                }
+
+                if (xfpdConsumeSkipPost(parsedPost.postId)) {
+                    log.write(null, `Post #${parsedPost.postNumber} pulado`, 'INFO');
+                    continue;
+                }
 
                 // console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
                 totalProcessed++;
@@ -8749,15 +8995,38 @@ let skipCurrentThread = false;
             const btnSkip = document.createElement('button');
             btnSkip.textContent = 'Skip Current Thread';
             btnSkip.disabled = true;
-            btnSkip.style.marginLeft = '10px';
-            btnSkip.style.padding = '8px 12px';
-            btnSkip.style.color = 'white';
-            btnSkip.style.border = 'none';
-            btnSkip.style.borderRadius = '4px';
-            btnSkip.style.cursor = 'pointer';
-            btnSkip.style.fontWeight = 'bold';
+            btnSkip.style.fontSize = '1.3rem';
+            btnSkip.style.padding = '0';
+            btnSkip.style.paddingRight = '0px';
+            btnSkip.style.paddingLeft = '0px';
+            btnSkip.style.paddingRight = '8px';
+            btnSkip.style.paddingLeft = '8px';
+            btnSkip.style.height = '28px';
+            btnSkip.style.lineHeight = '28px';
+            btnSkip.style.background = '#383c42';
+            btnSkip.style.border = '1px solid rgba(255,255,255,0.12)';
+            btnSkip.style.textTransform = 'initial';
+            btnSkip.style.textAlign = "center";
 
             btnWatch.parentNode.insertBefore(btnSkip, btnWatch.nextSibling);
+
+            const btnSkipPost = document.createElement('button');
+            btnSkipPost.textContent = 'Skip Current Post';
+            btnSkipPost.disabled = true;
+            btnSkipPost.style.fontSize = '1.3rem';
+            btnSkipPost.style.padding = '0';
+            btnSkipPost.style.paddingRight = '0px';
+            btnSkipPost.style.paddingLeft = '0px';
+            btnSkipPost.style.paddingRight = '8px';
+            btnSkipPost.style.paddingLeft = '8px';
+            btnSkipPost.style.height = '28px';
+            btnSkipPost.style.lineHeight = '28px';
+            btnSkipPost.style.background = '#383c42';
+            btnSkipPost.style.border = '1px solid rgba(255,255,255,0.12)';
+            btnSkipPost.style.textTransform = 'initial';
+            btnSkipPost.style.textAlign = "center";
+
+            btnWatch.parentNode.insertBefore(btnSkipPost, btnSkip.nextSibling);
 
             btnSkip.addEventListener('click', () => {
                 if (isDownloadingAll) {
@@ -8772,6 +9041,18 @@ let skipCurrentThread = false;
                 }
             });
 
+            btnSkipPost.addEventListener('click', () => {
+                if (!isDownloadingAll || !xfpdActiveWatchedPost || !xfpdActiveWatchedPost.postId) {
+                    return;
+                }
+                xfpdRequestSkipPost(xfpdActiveWatchedPost.postId);
+                log.write(null, `Skip requested: pulando post #${xfpdActiveWatchedPost.postNumber || '?'}`, 'INFO');
+                btnSkipPost.textContent = 'Skipping Post...';
+                setTimeout(() => {
+                    if (isDownloadingAll) btnSkipPost.textContent = 'Skip Current Post';
+                }, 1500);
+            });
+
             const ensureWatchedControlsLoaded = async () => {
                 if (threadUIControls || isLoadingWatchedControls) return;
                 isLoadingWatchedControls = true;
@@ -8784,13 +9065,13 @@ let skipCurrentThread = false;
                         return;
                     }
 
-                    const { container, orderSelect, filterSelect } = createWatchedThreadsUI(allThreads);
-                    threadUIControls = { container, orderSelect, filterSelect };
+                    const { container, orderSelect, filterSelect, pauseCheckbox, timeoutInput, timeoutUnitSelect } = createWatchedThreadsUI(allThreads);
+                    threadUIControls = { container, orderSelect, filterSelect, pauseCheckbox, timeoutInput, timeoutUnitSelect };
 
                     const parent = btnWatch.parentNode;
                     if (parent) {
-                        if (btnSkip.nextSibling) {
-                            parent.insertBefore(container, btnSkip.nextSibling);
+                        if (btnSkipPost.nextSibling) {
+                            parent.insertBefore(container, btnSkipPost.nextSibling);
                         } else {
                             parent.appendChild(container);
                         }
@@ -8822,9 +9103,6 @@ let skipCurrentThread = false;
                     return;
                 }
 
-                // Esperar um tick para deixar a UI atualizar
-                await h.delayedResolve(500);
-
                 // Obter seleções
                 const selectedThreadUrls = Array.from(document.querySelectorAll('.thread-checkbox:checked'))
                     .map(cb => cb.value);
@@ -8839,8 +9117,34 @@ let skipCurrentThread = false;
 
                 isDownloadingAll = true;
                 skipCurrentThread = false;
+                xfpdSkipPostRequested = false;
+                xfpdSkipPostTargetId = null;
                 btnSkip.disabled = false;
+                btnSkip.style.cursor = "pointer";
+                btnSkip.style.color = "#287ABD";
+                btnSkip.addEventListener('mouseover', () => {
+                    btnSkip.style.color = "#3396e6";
+                    threadToggleBtn.style.background = '#494e55';
+                });
+                btnSkip.addEventListener('mouseout', () => {
+                    btnSkip.style.color = "#287ABD";
+                    threadToggleBtn.style.background = '#383c42';
+                });
                 btnSkip.textContent = 'Skip Current Thread';
+                btnSkipPost.disabled = false;
+                btnSkipPost.textContent = 'Skip Current Post';
+                btnSkip.style.cursor = "pointer";
+                btnSkip.style.color = "#287ABD";
+                btnSkipPost.style.cursor = "pointer";
+                btnSkipPost.style.color = "#287ABD";
+                btnSkipPost.addEventListener('mouseover', () => {
+                    btnSkipPost.style.color = "#3396e6";
+                    threadToggleBtn.style.background = '#494e55';
+                });
+                btnSkipPost.addEventListener('mouseout', () => {
+                    btnSkipPost.style.color = "#287ABD";
+                    threadToggleBtn.style.background = '#383c42';
+                });
 
                 // // Ocultar controles durante download
                 // if (threadUIControls && threadUIControls.container) {
@@ -8872,7 +9176,7 @@ let skipCurrentThread = false;
                         }
 
                         log.write(null, `Processando thread: ${url} (Filtro: ${filterValue})`, 'INFO');
-                        
+
                         // Adicionar task ao worker pool
                         await WorkerPool.addTask(async () => {
                             await processThreadFromHTML(url, filterValue);
@@ -8885,8 +9189,15 @@ let skipCurrentThread = false;
                     console.error(err);
                 } finally {
                     isDownloadingAll = false;
+                    xfpdPauseDownloads = false;
+                    xfpdClearActiveWatchedPost();
                     btnSkip.disabled = true;
                     btnSkip.textContent = 'Skip Current Thread';
+                    btnSkipPost.disabled = true;
+                    btnSkipPost.textContent = 'Skip Current Post';
+                    if (threadUIControls && threadUIControls.pauseCheckbox) {
+                        threadUIControls.pauseCheckbox.checked = false;
+                    }
                 }
             });
         }
