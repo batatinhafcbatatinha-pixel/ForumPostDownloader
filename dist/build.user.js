@@ -9122,14 +9122,14 @@ let skipCurrentThread = false;
                 btnSkip.disabled = false;
                 btnSkip.style.cursor = "pointer";
                 btnSkip.style.color = "#287ABD";
-                btnSkip.addEventListener('mouseover', () => {
+                btnSkip.onmouseover = () => {
                     btnSkip.style.color = "#3396e6";
-                    threadToggleBtn.style.background = '#494e55';
-                });
-                btnSkip.addEventListener('mouseout', () => {
+                    btnSkip.style.background = '#494e55';
+                };
+                btnSkip.onmouseout = () => {
                     btnSkip.style.color = "#287ABD";
-                    threadToggleBtn.style.background = '#383c42';
-                });
+                    btnSkip.style.background = '#383c42';
+                };
                 btnSkip.textContent = 'Skip Current Thread';
                 btnSkipPost.disabled = false;
                 btnSkipPost.textContent = 'Skip Current Post';
@@ -9137,14 +9137,14 @@ let skipCurrentThread = false;
                 btnSkip.style.color = "#287ABD";
                 btnSkipPost.style.cursor = "pointer";
                 btnSkipPost.style.color = "#287ABD";
-                btnSkipPost.addEventListener('mouseover', () => {
+                btnSkipPost.onmouseover = () => {
                     btnSkipPost.style.color = "#3396e6";
-                    threadToggleBtn.style.background = '#494e55';
-                });
-                btnSkipPost.addEventListener('mouseout', () => {
+                    btnSkipPost.style.background = '#494e55';
+                };
+                btnSkipPost.onmouseout = () => {
                     btnSkipPost.style.color = "#287ABD";
-                    threadToggleBtn.style.background = '#383c42';
-                });
+                    btnSkipPost.style.background = '#383c42';
+                };
 
                 // // Ocultar controles durante download
                 // if (threadUIControls && threadUIControls.container) {
