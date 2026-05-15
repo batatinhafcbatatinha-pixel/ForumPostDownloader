@@ -4,7 +4,7 @@
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
-// @version 3.17-custom.1
+// @version 3.18
 // (custom build) updateURL/downloadURL removed to avoid overwriting custom changes
 // @icon https://simp4.cuckcapital.cr/simpcityIcon192.png
 // @license WTFPL; http://www.wtfpl.net/txt/copying/
@@ -159,6 +159,7 @@ const tippy = window.tippy;
 const http = window.GM_xmlhttpRequest;
 window.isFF = typeof InstallTrigger !== 'undefined';
 window.logs = [];
+window.xfpdDebugLastScan = null;
 
 const log = {
     /**
@@ -659,6 +660,7 @@ const h = {
     ext: path => {
         return !path || path.indexOf('.') < 0 ? null : path.split('.').reverse()[0];
     },
+    extension: path => h.ext(path),
     /**
    * @param element
    * @returns {string}
@@ -1399,6 +1401,105 @@ const parsers = {
         },
     },
 };
+
+const xfpdDebugScanCurrentPageResources = () => {
+    const postSelectors = [
+        'article.message',
+        '.message',
+    ];
+
+    const collectUrls = root => {
+        const urls = new Set();
+        const attrs = ['href', 'src', 'data-src', 'data-url', 'content'];
+
+        for (const selector of ['a', 'img', 'video', 'source', 'iframe', 'meta', '[data-url]']) {
+            for (const el of root.querySelectorAll(selector)) {
+                for (const attr of attrs) {
+                    try {
+                        const value = el.getAttribute && el.getAttribute(attr);
+                        if (value && /^https?:\/\//i.test(value)) urls.add(String(value).trim());
+                    } catch (e) { }
+                }
+            }
+        }
+
+        try {
+            const html = String(root.innerHTML || '');
+            for (const match of html.matchAll(/https?:\/\/[^\s"'<>]+/gi)) {
+                urls.add(String(match[0] || '').trim());
+            }
+        } catch (e) { }
+
+        return [...urls];
+    };
+
+    const isImageCandidate = url => /\.(?:jpg|jpeg|png|gif|webp|svg|tif|tiff|jpe?g)(?:[?#]|$)/i.test(String(url || '')) || /(?:img|thumbs?|i\d+|images?)\./i.test(String(url || ''));
+    const isVideoCandidate = url => /\.(?:mp4|webm|mov|m4v|avi|flv|mkv|ogv|ogg)(?:[?#]|$)/i.test(String(url || ''));
+
+    const posts = [];
+    for (const selector of postSelectors) {
+        posts.push(...document.querySelectorAll(selector));
+        if (posts.length) break;
+    }
+
+    const report = posts.map((post, index) => {
+        const parsedPost = parsers.thread.parsePost(post);
+        const parsedHosts = parsers.hosts.parseHosts(parsedPost.content || '');
+        const rawUrls = collectUrls(parsedPost.contentContainer || post);
+
+        const matchedUrls = parsedHosts.flatMap(host => host.resources.map(resource => ({
+            host: `${host.name}:${host.category}`,
+            resource,
+        })));
+
+        const imageUrls = rawUrls.filter(isImageCandidate);
+        const videoUrls = rawUrls.filter(isVideoCandidate);
+
+        return {
+            index: index + 1,
+            postId: parsedPost.postId,
+            postNumber: parsedPost.postNumber,
+            rawCount: rawUrls.length,
+            imageCount: imageUrls.length,
+            videoCount: videoUrls.length,
+            hostCount: parsedHosts.length,
+            rawUrls,
+            imageUrls,
+            videoUrls,
+            hosts: parsedHosts.map(host => ({
+                host: `${host.name}:${host.category}`,
+                type: host.type,
+                enabled: host.enabled,
+                resources: host.resources,
+            })),
+            matchedUrls,
+        };
+    });
+
+    window.xfpdDebugLastScan = report;
+    try {
+        if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
+            unsafeWindow.xfpdDebugLastScan = report;
+        }
+    } catch (e) { }
+    console.log('[XFPD DEBUG] Page resource scan', report.map(row => ({
+        postId: row.postId,
+        postNumber: row.postNumber,
+        rawCount: row.rawCount,
+        imageCount: row.imageCount,
+        videoCount: row.videoCount,
+        hostCount: row.hostCount,
+    })));
+    return report;
+};
+
+window.xfpdDebugScanCurrentPageResources = xfpdDebugScanCurrentPageResources;
+try {
+    if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
+        unsafeWindow.xfpdDebugScanCurrentPageResources = xfpdDebugScanCurrentPageResources;
+        unsafeWindow.xfpdDebugLastScan = window.xfpdDebugLastScan;
+    }
+} catch (e) { }
 
 const styles = {
     tippy: {
@@ -2155,6 +2256,67 @@ const resolvers = [
             return dom.querySelector('.col-md-12 > a > img').getAttribute('src');
         },
     ],
+    // Direct cuckcapital image links (normalize .md. /.th. variants)
+    [[/(simp\d+\.)?cuckcapital\.cr\/images\//i], url => url.replace('.md.', '.').replace('.th.', '.')],
+    // Short jpg6.su image pages -> resolve to direct image URL
+    [[/jpg6\.su\/img\/[A-Za-z0-9_-]+/i], async (url, http) => {
+        try {
+            const looksLikeChromeImage = (s) => /(?:^|[./_-])(logo|logos|banner|branding|favicon|icon|sprite|avatar|placeholder|loading|default)(?:[._/-]|$)/i.test(String(s || ''));
+            const pickBestImage = (dom) => {
+                const candidates = [];
+                const add = (value) => {
+                    const src = String(value || '').trim();
+                    if (!src || looksLikeChromeImage(src)) return;
+                    candidates.push(src);
+                };
+
+                try {
+                    add(dom.querySelector('meta[property="og:image"]')?.getAttribute('content'));
+                } catch (e) { }
+
+                for (const selector of [
+                    '.list-item-image img',
+                    '.post-content img',
+                    'article img',
+                    'main img',
+                ]) {
+                    try {
+                        dom.querySelectorAll(selector).forEach(img => {
+                            const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-url');
+                            if (!src) return;
+                            const className = String(img.className || '');
+                            const altText = String(img.getAttribute('alt') || '');
+                            if (looksLikeChromeImage(src) || looksLikeChromeImage(className) || looksLikeChromeImage(altText)) return;
+                            add(src);
+                        });
+                    } catch (e) { }
+                    if (candidates.length) break;
+                }
+
+                if (!candidates.length) {
+                    try {
+                        dom.querySelectorAll('img').forEach(img => {
+                            const src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-url');
+                            if (!src) return;
+                            const className = String(img.className || '');
+                            const altText = String(img.getAttribute('alt') || '');
+                            if (looksLikeChromeImage(src) || looksLikeChromeImage(className) || looksLikeChromeImage(altText)) return;
+                            add(src);
+                        });
+                    } catch (e) { }
+                }
+
+                return candidates[0] || null;
+            };
+
+            const { source, dom } = await http.get(url);
+            try { console.log('[XFPD JPG6 TRACE] fetched page', { url, postId: null, hasDom: !!dom, sourceLength: (source || '').length }); } catch (e) { }
+            const img = pickBestImage(dom) || '';
+            try { console.log('[XFPD JPG6 TRACE] extracted img', { url, img }); } catch (e) { }
+            if (img) return String(img).replace('.md.', '.').replace('.th.', '.');
+        } catch (e) { }
+        return null;
+    }],
     [[/pomf2.lain.la/], url => url.replace(/pomf2.lain.la\/f\/(.*)\.(\w{3,4})(\?.*)?/, 'pomf2.lain.la/f/$1.$2')],
     [[/coomer.st\/(data|thumbnail)/], url => url],
     [
@@ -2267,7 +2429,7 @@ const resolvers = [
     ],
     [[/kemono.cr\/data/], url => url],
     [
-        [/(jpg\d\.(church|fish|fishing|pet|su|cr))|selti-delivery\.ru\//i, /:!jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)/i],
+        [/(jpg\d\.(church|fish|fishing|pet|su|cr))|cuckcapital\.cr\//i, /:!jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)/i],
         url =>
             url
                 .replace('.th.', '.')
@@ -2339,8 +2501,10 @@ const resolvers = [
             }
 
             const resolvePageImages = async dom => {
+                const looksLikeChromeImage = (s) => /(?:^|[./_-])(logo|logos|banner|branding|favicon|icon|sprite|avatar|placeholder|loading|default)(?:[._/-]|$)/i.test(String(s || ''));
                 const images = [...dom.querySelectorAll('.list-item-image > a > img')]
                     .map(img => img.getAttribute('src'))
+                    .filter(url => url && !looksLikeChromeImage(url))
                     .map(url =>
                         url
                             .replace('.md.', '.')
@@ -5610,6 +5774,16 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
     h.ui.setText(statusLabel, 'Resolving...');
 
+    // Early resolve tracing: log parsedHosts and enabledHosts so we can see
+    // why JPGX-like hosts produce no resolved resources in some posts.
+    try {
+        console.log('[XFPD RESOLVE TRACE] parsedHosts summary', {
+            postId,
+            parsedHosts: (parsedHosts || []).map(ph => ({ name: ph.name, type: ph.type, resources: (ph.resources || []).slice(0, 8), resourceCount: (ph.resources || []).length })),
+            enabledHosts: (enabledHosts || []).map(hh => ({ name: hh.name, type: hh.type })),
+        });
+    } catch (e) { }
+
 
 
     // Bunkr: capture filename hints from visible link text (works even when CF blocks /v/ pages).
@@ -5682,6 +5856,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 await xfpdWaitWhilePaused();
             }
 
+            try {
+                console.log('[XFPD RESOLVE-DBG] resource dump', { postId, host: host && host.name, resourceType: typeof resource, resourcePreview: (typeof resource === 'string' ? resource.slice(0,200) : (resource && resource.url ? String(resource.url).slice(0,200) : String(resource).slice(0,200))) });
+            } catch (e) { }
+
             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
             h.ui.setText(statusLabel, `Resolving: ${h.limit(resource, 80)}`);
 
@@ -5693,11 +5871,21 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 for (const pattern of patterns) {
                     let strPattern = pattern.toString();
+                    try {
+                        console.log('[XFPD RESOLVE-DBG] pattern check', { postId, host: host && host.name, pattern: String(pattern) });
+                    } catch (e) { }
 
                     let shouldMatch = !h.contains(':!', strPattern);
 
                     strPattern = strPattern.replace(':!', '');
                     strPattern = h.re.toRegExp(h.re.toString(strPattern), 'is');
+
+                    try {
+                        const testResult = strPattern.test(resource);
+                        console.log('[XFPD RESOLVE-DBG] pattern test result', { postId, host: host && host.name, pattern: String(pattern), shouldMatch, testResult });
+                    } catch (e) {
+                        console.log('[XFPD RESOLVE-DBG] pattern test error', { postId, host: host && host.name, pattern: String(pattern), err: String(e) });
+                    }
 
                     if (shouldMatch && !strPattern.test(resource)) {
                         matched = false;
@@ -5717,6 +5905,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 let r = null;
 
                 try {
+                    try {
+                        console.log('[XFPD RESOLVER TRACE] invoking resolver', { postId, resource, host: host && host.name, patterns: patterns.map(p => String(p)) });
+                    } catch (e) { }
                     const progressCB = (t) => {
                         try {
                             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
@@ -5725,6 +5916,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     };
 
                     r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
+                    try {
+                        console.log('[XFPD RESOLVER TRACE] resolver result', { postId, resource, host: host && host.name, r: (typeof r === 'string' || typeof r === 'number') ? String(r).slice(0,200) : (Array.isArray(r.resolved) ? `array(${r.resolved.length})` : (r && r.url ? String(r.url).slice(0,200) : '[object]')) });
+                    } catch (e) { }
                 } catch (e) {
                     if (host.name === 'Cyberdrop' && /cyberdrop\.[a-z]{2,}\/a\//i.test(String(resource))) {
                         continue;
@@ -5790,6 +5984,28 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     if (resolved.length) {
         log.separator(postId);
     }
+
+    // Deduplicate Turbo signed URLs by Turbo ID to avoid repeated downloads
+    try {
+        const seenTurbo = new Set();
+        const filtered = [];
+        for (const r of resolved) {
+            const urlStr = String((r && r.url) || '');
+            const original = String((r && r.original) || '');
+            if (/turbocdn\.st|turbo\.cr|turbovid\.cr/i.test(urlStr)) {
+                const tid = turboIdBySignedUrl.get(urlStr) || turboExtractId(original) || turboExtractId(urlStr) || '';
+                if (tid) {
+                    if (seenTurbo.has(tid)) {
+                        log.post.info(postId, `::Skipping duplicate Turbo resource (id=${tid})::: ${urlStr}`, postNumber);
+                        continue;
+                    }
+                    seenTurbo.add(tid);
+                }
+            }
+            filtered.push(r);
+        }
+        resolved = filtered;
+    } catch (e) { }
 
     // log.post.info(postId, '::Url resolution completed::', postNumber);
 
@@ -6569,6 +6785,15 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 }
 
                 const ellipsedUrl = h.limit(url, 80);
+
+                // Lightweight tracing for JPGX / simp* image hosts to debug missing images
+                try {
+                    const isJpgxLike = /simp\d+\.cuckcapital\.cr|jpg6\.su|jpg\d\.(su|cr)/i.test(String(url || '')) || (host && host.name && /JPGX/i.test(String(host.name)));
+                    if (isJpgxLike) {
+                        console.log('[XFPD IMG TRACE] startDownload entry', { postId, url, original, host: host && host.name, folderName, isTurbo });
+                        log.post.info(postId, `::IMG TRACE startDownload::: ${url}`, postNumber);
+                    }
+                } catch (e) { }
                 log.post.info(postId, `::Downloading${isGoFile && pass > 1 ? ' (retry)' : ''}::: ${url}`, postNumber);
 
                 if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|selti-delivery\.ru/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
@@ -6840,6 +7065,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         }
 
                                         const blobUrl = URL.createObjectURL(blob);
+                                            try { console.log('[XFPD IMG TRACE] blob created for', url, { blobSize }); } catch (e) { }
                                         GM_download({
                                             url: blobUrl,
                                             name: saveAsName,
@@ -7026,6 +7252,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 });
                             },
                         };
+                        if (isTurboCdn) {
+                            dlOpts.headers = { ...(dlOpts.headers || {}), Referer: 'https://turbo.cr/' };
+                        }
                         if (imagebamHeaders && isFF) {
                             // Imagebam CDN often blocks hotlinking without a Referer. In Firefox, GM_download headers
                             // are unreliable, so fetch as a blob with GM_xmlhttpRequest (with Referer) then save.
@@ -7100,7 +7329,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     }
                                 } catch (e) { }
                             }
-                            console.log("DOWNLOAD URL:", dlOpts.url);
+                            try { console.log('[XFPD IMG TRACE] About to GM_download', { url: dlOpts.url, headers: dlOpts.headers, name: dlOpts.name, postId }); } catch (e) { }
                             GM_download(dlOpts);
                         }
 
@@ -9495,7 +9724,7 @@ let skipCurrentThread = false;
 
                     selectedPosts.push({ post, enabled: false });
 
-                    const threadTitle = overrideThreadTitle || parsers.thread.parseTitle();
+                    const threadTitle = parsers.thread.parseTitle();
 
                     let defaultPostContent = textContent.trim().replace('â€‹', '');
 
