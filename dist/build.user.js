@@ -6,7 +6,7 @@
 // @description Downloads images and videos from posts
 // @version 3.17-custom.1
 // (custom build) updateURL/downloadURL removed to avoid overwriting custom changes
-// @icon https://simp4.host.church/simpcityIcon192.png
+// @icon https://simp4.cuckcapital.cr/simpcityIcon192.png
 // @license WTFPL; http://www.wtfpl.net/txt/copying/
 // @match https://simpcity.cr/threads/*
 // @match https://simpcity.is/threads/*
@@ -90,7 +90,7 @@
 // @connect jpg5.su
 // @connect jpg6.su
 // @connect jpg7.cr
-// @connect selti-delivery.ru
+// @connect cuckcapital.cr
 // @connect imgbox.com
 // @connect pixhost.to
 // @connect pomf2.lain.la
@@ -117,6 +117,9 @@
 // @connect give.xxx
 // @connect githubusercontent.com
 // @connect filester.me
+// @connect filester.sh
+// @connect filester.si
+// @connect filester.gg
 // @connect pd1.pixeldrain.com
 // @connect storage.pixeldrain.com
 // @connect *.pixeldrainusercontent.com
@@ -304,17 +307,20 @@ const filesterRetryAttemptsByKey = new Map(); // token/url -> number of retries 
 function filesterTokenFromVUrl(u) {
     try {
         const m = /\/v\/([^\/?#]+)/i.exec(String(u || ''));
-        return m && m[1] ? String(m[1]) : '';
+           return m && m[1] ? String(m[1]) : '';
     } catch (e) { return ''; }
 }
 
 function filesterBuildCandidates(token) {
     const t = String(token || '').trim();
     if (!t) return [];
-    const order = [6, 1, 2, 3, 4, 5, 7, 8];
+        const order = [6, 1, 2, 3, 4, 5, 7, 8];
     const out = [];
     for (const n of order) out.push(`https://cache${n}.filester.me/v/${t}`);
     out.push(`https://filester.me/v/${t}`);
+    out.push(`https://filester.sh/v/${t}`);
+    out.push(`https://filester.si/v/${t}`);
+    out.push(`https://filester.gg/v/${t}`);
     return out;
 }
 
@@ -584,7 +590,7 @@ async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, orig
         // Immediately blacklist this domain and return null so the caller tries the next domain.
         if (BUNKR_FASTFAIL_ON_403 && (Number(lastStatus || 0) === 403) && !allowWarmup) {
             xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-            return null;
+                    const status = Number(last?.status || 0);
         }
         if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && xfpdLooksLikeCfChallenge(lastText, null)) {
             xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
@@ -2002,7 +2008,7 @@ const hosts = [
     ['Forum:Attachments', [/(\/attachments\/|\/data\/video\/)/]],
     ['Coomer:Profiles', [/coomer.st\/[~an@._-]+\/user/]],
     ['Coomer:image', [/(\w+\.)?coomer.st\/(data|thumbnail)/]],
-    ['JPGX:image', [/(simp\d+\.)?(selti-delivery\.ru|jpg\d?\.(church|fish|fishing|pet|su|cr))\/(?!(img\/|a\/|album\/))/, /jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)[~an@-_.]+<no_qs>/]],
+    ['JPGX:image', [/(simp\d+\.)?(cuckcapital\.cr|jpg\d?\.(church|fish|fishing|pet|su|cr))\/(?!(img\/|a\/|album\/))/, /jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)[~an@-_.]+<no_qs>/]],
     ['kemono:direct link', [/.{2,6}\.kemono.cr\/data\//]],
     ['Postimg:image', [/!!https?:\/\/(www.)?i\.?(postimg|pixxxels).cc\/(.{8})/]], //[/!!https?:\/\/(www.)?postimg.cc\/(.{8})/]],
     ['Ibb:image',
@@ -6541,7 +6547,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (url.includes('turbocdn.st')) {
                     reflink = "https://turbo.cr/"
                 }
-                if (/(?:\bfilester\.me\b|cache\d+\.filester\.me)/i.test(String(url || ''))) {
+                if (/(?:\bfilester\.(me|sh|si|gg)\b|cache\d+\.filester\.(me|sh|si|gg))/i.test(String(url || ''))) {
                     reflink = "https://filester.me/"
                 }
 
@@ -6902,8 +6908,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     candidates0.unshift(u0);
 
                                     const cacheLabel = (u) => {
-                                        const m = String(u || '').match(/https?:\/\/cache(\d+)\.filester\.me/i);
-                                        return m && m[1] ? `cache${m[1]}` : (String(u || '').includes('filester.me') ? 'filester' : 'url');
+                                        const m = String(u || '').match(/https?:\/\/cache(\d+)\.filester\.(me|sh|si|gg)/i);
+                                        return m && m[1] ? `cache${m[1]}` : (/filester\.(me|sh|si|gg)/i.test(String(u || '')) ? 'filester' : 'url');
                                     };
 
                                     const isRetryableStatus = (st) => {
