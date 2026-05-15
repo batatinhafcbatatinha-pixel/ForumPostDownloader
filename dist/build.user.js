@@ -1015,23 +1015,54 @@ const parsers = {
      */
 
         parsePost: post => {
-            if (!post.parentNode || !post.parentNode.parentNode) return null;
-            const parent = post.parentNode.parentNode;
-            if (!parent.querySelector('.message-content')) return null;
-            let messageContent = post.parentNode.parentNode.querySelector('.message-content .message-userContent');
-            if (!messageContent) {
-                messageContent = post.parentNode.parentNode.querySelector('.message-userContent');
+            // Normalize input: `post` might be the attribution element or the whole article/message
+            let container = post;
+
+            // If the element is a small attribution list, climb to the nearest article/message wrapper
+            if (!container) return null;
+
+            if (!container.querySelector || !container.querySelector('.message-userContent')) {
+                const nearest = container.closest
+                    ? container.closest('article.message, .message, .message-inner, .message-main, .js-post')
+                    : null;
+                if (nearest) container = nearest;
             }
-            const footer = post.parentNode.parentNode.querySelector('footer');
+
+            // Try to locate the message content inside the resolved container
+            let messageContent = null;
+            try {
+                messageContent = container.querySelector('.message-content .message-userContent') || container.querySelector('.message-userContent');
+            } catch (e) { messageContent = null; }
+
             if (!messageContent) {
-                console.warn('parsePost: .message-userContent not found', post);
+                console.warn('parsePost: .message-userContent not found', container);
                 return null;
             }
+
             const messageContentClone = messageContent.cloneNode(true);
 
-            const postIdAnchor = post.querySelector('li:last-of-type > a');
-            const postId = /(?<=\/post-).*/i.exec(postIdAnchor.getAttribute('href'))[0];
-            const postNumber = postIdAnchor.textContent.replace('#', '').trim();
+            // Find footer (may be inside article or sibling)
+            let footer = container.querySelector('footer');
+            if (!footer) footer = container.closest('article')?.querySelector('footer') || null;
+
+            // Find an anchor that links to this post (href contains /post-)
+            let postIdAnchor = null;
+            try {
+                postIdAnchor = container.querySelector('a[href*="/post-"]') || post.querySelector('a[href*="/post-"]');
+            } catch (e) { postIdAnchor = null; }
+
+            if (!postIdAnchor || !postIdAnchor.getAttribute) {
+                console.warn('parsePost: post anchor not found', container);
+                return null;
+            }
+
+            const postIdMatch = /\/post-(\d+)/i.exec(postIdAnchor.getAttribute('href'));
+            if (!postIdMatch) {
+                console.warn('parsePost: could not parse post id from href', postIdAnchor.getAttribute('href'));
+                return null;
+            }
+            const postId = postIdMatch[1];
+            const postNumber = (postIdAnchor.textContent || '').replace('#', '').trim() || postId;
 
             // Remove the following from the post content:
             // 1. Quotes.
@@ -5471,6 +5502,7 @@ let xfpdSkipPostRequested = false;
 let xfpdSkipPostTargetId = null;
 let xfpdActiveWatchedPost = null;
 let xfpdDownloadTimeoutConfig = { value: 30, unit: 'minutes' };
+let xfpdRestartDownload = false;
 
 function xfpdToMs(value, unit) {
     const v = Number(value);
@@ -8159,13 +8191,7 @@ const addDownloadPageButton = () => {
     buttonTextSpan.innerText = `Download Page`;
 
     downloadAllButton.appendChild(buttonTextSpan);
-
-
-    let buttonGroup = h.element('.buttonGroup')
-        || document.querySelector('.block-outer-opposite .buttonGroup')
-        || document.querySelector('.block-outer-main .buttonGroup')
-        || document.querySelector('.p-body-header .buttonGroup')
-        || document.querySelector('.block .block-outer .buttonGroup');
+    const buttonGroup = findThreadButtonGroup();
     if (buttonGroup) {
         buttonGroup.prepend(downloadAllButton);
     } else {
@@ -8192,6 +8218,32 @@ const registerPostReaction = postFooter => {
 
 
 const CYBERDROP_WARMUP_DEFAULT_MS = 2500;
+const THREAD_BUTTON_GROUP_SELECTORS = [
+    '.p-body-header .buttonGroup',
+    '.block-outer-opposite .buttonGroup',
+    '.block-outer-main .buttonGroup',
+    '.p-body-header .p-title .buttonGroup',
+    '.block .block-outer .buttonGroup',
+];
+
+const findThreadButtonGroup = () => {
+    for (const selector of THREAD_BUTTON_GROUP_SELECTORS) {
+        const buttonGroup = h.element(selector) || document.querySelector(selector);
+        if (buttonGroup) {
+            return buttonGroup;
+        }
+    }
+
+    const bodyHeader = document.querySelector('.p-body-header');
+    if (bodyHeader) {
+        const buttonGroup = document.createElement('div');
+        buttonGroup.className = 'buttonGroup xfpd-buttonGroup';
+        bodyHeader.prepend(buttonGroup);
+        return buttonGroup;
+    }
+
+    return null;
+};
 let cyberdropWarmupChain = Promise.resolve();
 const cyberdropWarmupAttempted = new Map();
 
@@ -8674,11 +8726,7 @@ const addDownloadWatchedButton = () => {
 
     downloadAllButton.appendChild(buttonTextSpan);
 
-    let buttonGroup = h.element('.buttonGroup')
-        || document.querySelector('.block-outer-opposite .buttonGroup')
-        || document.querySelector('.block-outer-main .buttonGroup')
-        || document.querySelector('.p-body-header .buttonGroup')
-        || document.querySelector('.block .block-outer .buttonGroup');
+    const buttonGroup = findThreadButtonGroup();
     if (buttonGroup) {
         buttonGroup.prepend(downloadAllButton);
     } else {
@@ -8691,6 +8739,11 @@ const addDownloadWatchedButton = () => {
 
 async function processThreadFromHTML(url, filterType = 'date') {
     try {
+        const looksLikeThreadBlock = sourceText => {
+            const lowSrc = String(sourceText || '').slice(0, 2000).toLowerCase();
+            return /oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
+        };
+
         const baseUrl = url.replace(/\/page-\d+/, '').replace(/\/$/, '').split('?')[0];
 
         // Adicionar filtro na URL se for reaction_score
@@ -8698,7 +8751,37 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
         console.log(`Detecting the last page of the thread: ${baseUrl} (Filter: ${filterType})`);
 
-        const { source: firstPageSource } = await h.http.get(urlWithFilter).catch(e => ({ source: null }));
+        // Retry logic for initial page fetch
+        let firstPageSource = null;
+        let retries = 2;
+        let retryDelay = 2000;
+        
+        while (retries > 0) {
+            const response = await h.http.get(urlWithFilter).catch(e => ({ source: null }));
+            firstPageSource = response?.source || null;
+            
+            if (firstPageSource) {
+                // Check if response is a DDoS-Guard / Oopsies / login wall challenge
+                if (looksLikeThreadBlock(firstPageSource)) {
+                    if (retries > 1) {
+                        console.warn(`Thread blocked on initial page load. Retrying after ${retryDelay}ms...`);
+                        await h.delayedResolve(retryDelay);
+                        retries--;
+                        retryDelay *= 2;
+                        continue;
+                    }
+                }
+                break;
+            } else if (retries > 1) {
+                console.warn(`Failed to fetch initial page. Retrying after ${retryDelay}ms...`);
+                await h.delayedResolve(retryDelay);
+                retries--;
+                retryDelay *= 2;
+            } else {
+                break;
+            }
+        }
+        
         if (!firstPageSource) {
             console.error(`Failed to load the base page: ${baseUrl}`);
             return;
@@ -8781,18 +8864,68 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                 console.log(`Collecting posts from page ${page}: ${pageUrl}`);
 
-                const { source } = await h.http.get(pageUrl).catch(e => ({ source: null }));
+                // Retry logic for DDoS-Guard and other temporary blocks
+                let source = null;
+                let retries = 2;
+                let retryDelay = 2000;
+                
+                while (retries > 0) {
+                    const response = await h.http.get(pageUrl).catch(e => ({ source: null }));
+                    source = response?.source || null;
+                    
+                    if (source) {
+                        // Check if response is a DDoS-Guard / Oopsies / login wall challenge
+                        if (looksLikeThreadBlock(source)) {
+                            if (retries > 1) {
+                                console.warn(`Thread blocked on page ${page}. Retrying after ${retryDelay}ms...`);
+                                await h.delayedResolve(retryDelay);
+                                retries--;
+                                retryDelay *= 2; // Exponential backoff
+                                continue;
+                            } else {
+                                console.warn(`Thread block persisted after retries on page ${page}: ${pageUrl}`);
+                                break; // Exit retry loop, will skip this page
+                            }
+                        }
+                        break; // Success, exit retry loop
+                    } else if (retries > 1) {
+                        console.warn(`Failed to fetch page ${page}. Retrying after ${retryDelay}ms...`);
+                        await h.delayedResolve(retryDelay);
+                        retries--;
+                        retryDelay *= 2;
+                    } else {
+                        break;
+                    }
+                }
+                
                 if (!source) {
                     console.warn(`Page ${page} empty or failed: ${pageUrl}`);
                     continue;
                 }
 
                 const doc = parser.parseFromString(source, 'text/html');
-                const postElements = [...doc.querySelectorAll('.message-attribution-opposite')];
 
+                // Select post containers (not their sub-elements) to avoid duplicates.
+                // Use article.message--post primarily (simpcity), then fallbacks.
+                let postElements = [...doc.querySelectorAll('article.message--post, article.message.js-post, article.message-main, article[data-content*="post-"]')];
+
+                // If nothing found, try a couple of fallbacks and log a short snippet for diagnosis.
                 if (!postElements.length) {
-                    console.log(`No posts found on page ${page}`);
-                    continue;
+                    // Detect common blockers (login wall / Cloudflare interstitial / DDoS-Guard / Oopsies page)
+                    if (looksLikeThreadBlock(source)) {
+                        console.warn(`Page ${page} looks blocked or requires login: ${pageUrl}`);
+                        console.warn(String(source || '').slice(0, 500));
+                        continue;
+                    }
+
+                    // Try broader article/message container selectors as fallback
+                    postElements = [...doc.querySelectorAll('article.message, .message[data-content*="post-"], .js-post')];
+
+                    if (!postElements.length) {
+                        console.log(`No posts found on page ${page}`);
+                        console.log(`Source snippet: ${String(source || '').slice(0, 500)}`);
+                        continue;
+                    }
                 }
 
                 console.log(`Found ${postElements.length} posts on page ${page}`);
@@ -8835,7 +8968,8 @@ async function processThreadFromHTML(url, filterType = 'date') {
                     }
                 }
 
-                if (page > 1) await h.delayedResolve(1800 + Math.random() * 800);
+                // Increase delay between pages to avoid DDoS-Guard triggers
+                if (page > 1) await h.delayedResolve(2500 + Math.random() * 1500);
             } catch (err) {
                 console.error(`Error general on page ${page}:`, err);
             }
@@ -8928,11 +9062,7 @@ const addDownloadAllPagesButton = () => {
 
     downloadAllPagesButton.appendChild(buttonTextSpan);
 
-    let buttonGroup = h.element('.buttonGroup')
-        || document.querySelector('.block-outer-opposite .buttonGroup')
-        || document.querySelector('.block-outer-main .buttonGroup')
-        || document.querySelector('.p-body-header .buttonGroup')
-        || document.querySelector('.block .block-outer .buttonGroup');
+    const buttonGroup = findThreadButtonGroup();
     if (buttonGroup) {
         buttonGroup.appendChild(downloadAllPagesButton);
     } else {
@@ -9090,7 +9220,10 @@ let skipCurrentThread = false;
                 e.preventDefault();
 
                 if (isDownloadingAll) {
-                    // log.write(null, 'Download em massa jÃ¡ em andamento', 'WARN');
+                    // Se já está fazendo download, marcar para restart com novos filtros
+                    log.write(null, 'Download já em andamento. Reiniciando com novos filtros...', 'WARN');
+                    xfpdRestartDownload = true;
+                    skipCurrentThread = true; // Skip current thread para interromper o fluxo
                     return;
                 }
 
@@ -9198,12 +9331,26 @@ let skipCurrentThread = false;
                     if (threadUIControls && threadUIControls.pauseCheckbox) {
                         threadUIControls.pauseCheckbox.checked = false;
                     }
+
+                    // Se marcado para restart, recomçar o download com novos filtros
+                    if (xfpdRestartDownload) {
+                        xfpdRestartDownload = false;
+                        skipCurrentThread = false;
+                        log.write(null, 'Reiniciando download com novos filtros...', 'INFO');
+                        // Simular clique no botão novamente para recomçar
+                        setTimeout(() => {
+                            btnWatch.click();
+                        }, 500);
+                    }
                 }
             });
         }
 
 
-        h.elements('.message-attribution-opposite').forEach(post => {
+        // Select post containers (not their sub-elements) to avoid duplicates.
+        const postContainers = h.elements('article.message--post, article.message.js-post, article.message-main, article[data-content*="post-"]');
+        
+        postContainers.forEach(post => {
             const settings = {
                 zipped: true,
                 flatten: false,
@@ -9401,6 +9548,5 @@ let skipCurrentThread = false;
                         });
                 },
             });
-        }
-    });
+    }});
 })();
