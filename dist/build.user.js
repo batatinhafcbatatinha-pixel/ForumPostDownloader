@@ -2985,7 +2985,7 @@ const resolvers = [
             let folderName = null;
 
             const MAX_PAGES = 500;
-            const CONCURRENCY = 8;
+            const CONCURRENCY = Math.max(1, Number(xfpdWorkerConfig.asyncConcurrency || 8));
 
             const albumUrlObj = (() => {
                 try { return new URL(baseUrl); } catch (e) { return null; }
@@ -5798,6 +5798,8 @@ let xfpdSkipPostTargetId = null;
 let xfpdActiveWatchedPost = null;
 let xfpdDownloadTimeoutConfig = { value: 30, unit: 'minutes' };
 let xfpdRestartDownload = false;
+// Worker configuration (controls concurrency for asyncPool and WorkerPool)
+let xfpdWorkerConfig = { asyncConcurrency: 8, workerPoolSize: 3 };
 
 function xfpdToMs(value, unit) {
     const v = Number(value);
@@ -9065,6 +9067,47 @@ function createWatchedThreadsUI(threads) {
     timeoutRow.appendChild(timeoutInput);
     timeoutRow.appendChild(timeoutUnitSelect);
 
+    // ===== Worker concurrency controls =====
+    const workerConfigRow = document.createElement('div');
+    workerConfigRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 15px;';
+
+    const asyncConcLabel = document.createElement('label');
+    asyncConcLabel.textContent = 'Concurrency (asyncPool):';
+    asyncConcLabel.style.cssText = 'font-weight: bold;';
+
+    const asyncConcInput = document.createElement('input');
+    asyncConcInput.type = 'number';
+    asyncConcInput.min = '1';
+    asyncConcInput.step = '1';
+    asyncConcInput.value = String(xfpdWorkerConfig.asyncConcurrency || 8);
+    asyncConcInput.style.cssText = 'width: 90px; padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+
+    const poolSizeLabel = document.createElement('label');
+    poolSizeLabel.textContent = 'Worker pool size:';
+    poolSizeLabel.style.cssText = 'font-weight: bold; margin-left: 12px;';
+
+    const poolSizeInput = document.createElement('input');
+    poolSizeInput.type = 'number';
+    poolSizeInput.min = '1';
+    poolSizeInput.step = '1';
+    poolSizeInput.value = String(xfpdWorkerConfig.workerPoolSize || 3);
+    poolSizeInput.style.cssText = 'width: 70px; padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+
+    const syncWorkerConfig = () => {
+        const a = Math.max(1, Number(asyncConcInput.value) || 1);
+        const w = Math.max(1, Number(poolSizeInput.value) || 1);
+        xfpdWorkerConfig.asyncConcurrency = a;
+        xfpdWorkerConfig.workerPoolSize = w;
+    };
+
+    asyncConcInput.addEventListener('change', syncWorkerConfig);
+    poolSizeInput.addEventListener('change', syncWorkerConfig);
+
+    workerConfigRow.appendChild(asyncConcLabel);
+    workerConfigRow.appendChild(asyncConcInput);
+    workerConfigRow.appendChild(poolSizeLabel);
+    workerConfigRow.appendChild(poolSizeInput);
+
     // ===== SELECT 1: Threads com Checkboxes =====
     const threadSelectRow = document.createElement('div');
     threadSelectRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;';
@@ -9220,6 +9263,7 @@ function createWatchedThreadsUI(threads) {
     // Montar container
     controlsBody.appendChild(pauseRow);
     controlsBody.appendChild(timeoutRow);
+    controlsBody.appendChild(workerConfigRow);
     controlsBody.appendChild(threadSelectRow);
     controlsBody.appendChild(threadCheckboxContainer);
     controlsBody.appendChild(threadToggleBtn);
@@ -9231,7 +9275,7 @@ function createWatchedThreadsUI(threads) {
     container.appendChild(controlsVisibilityRow);
     container.appendChild(controlsBody);
 
-    return { container, orderSelect, filterSelect, controlsVisibilityCheckbox, pauseCheckbox, timeoutInput, timeoutUnitSelect };
+    return { container, orderSelect, filterSelect, controlsVisibilityCheckbox, pauseCheckbox, timeoutInput, timeoutUnitSelect, asyncConcInput, poolSizeInput };
 }
 
 /**
@@ -9416,11 +9460,11 @@ async function processThreadFromHTML(url, filterType = 'date') {
         // Retry logic for initial page fetch
         let firstPageSource = null;
         let retries = retrySchedule.length;
-        
+
         while (retries > 0) {
             const response = await getThreadPage(urlWithFilter);
             firstPageSource = response?.source || null;
-            
+
             if (firstPageSource) {
                 // Check if response is a DDoS-Guard / Oopsies / login wall challenge
                 if (looksLikeThreadBlock(firstPageSource)) {
@@ -9455,7 +9499,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 break;
             }
         }
-        
+
         if (!firstPageSource || looksLikeThreadBlock(firstPageSource)) {
             console.error(`Failed to load the base page: ${baseUrl}`);
             return {
@@ -9547,11 +9591,11 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 // Retry logic for DDoS-Guard and other temporary blocks
                 let source = null;
                 let retries = retrySchedule.length;
-                
+
                 while (retries > 0) {
                     const response = await getThreadPage(pageUrl);
                     source = response?.source || null;
-                    
+
                     if (source) {
                         // Check if response is a DDoS-Guard / Oopsies / login wall challenge
                         if (looksLikeThreadBlock(source)) {
@@ -9589,7 +9633,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
                         break;
                     }
                 }
-                
+
                 if (source && looksLikeThreadBlock(source)) {
                     threadFetchTelemetry.skippedPagesBlocked++;
                     source = null;
@@ -10038,8 +10082,8 @@ let skipCurrentThread = false;
 
                     log.write(null, `Iniciando download de ${urlsToProcess.length} threads watched (Filtro: ${filterValue})`, 'INFO');
 
-                    // Inicializar worker pool
-                    WorkerPool.init(3);
+                    // Inicializar worker pool (tamanho definido pelo controle de UI)
+                    WorkerPool.init(Number(xfpdWorkerConfig.workerPoolSize || 3));
 
                     // Processar threads com worker pool
                     for (const url of urlsToProcess) {
@@ -10118,7 +10162,7 @@ let skipCurrentThread = false;
 
         // Select post containers (not their sub-elements) to avoid duplicates.
         const postContainers = h.elements('article.message--post, article.message.js-post, article.message-main, article[data-content*="post-"]');
-        
+
         postContainers.forEach(post => {
             const settings = {
                 zipped: true,
