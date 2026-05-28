@@ -345,6 +345,53 @@ const BUNKR_FASTFAIL_ON_403 = true;
 const BUNKR_DOMAIN_BLACKLIST_MS = 60 * 60 * 1000; // 60 minutes
 const xfpdBunkrDomainBanUntil = new Map(); // baseOrigin -> timestamp
 
+const SIMPCITY_THREAD_WARMUP_MS = 7000;
+const SIMPCITY_THREAD_FORCE_WARMUP_MS = 12000;
+const SIMPCITY_THREAD_WARMUP_COOLDOWN_MS = 30000;
+const SIMPCITY_THREAD_TRUST_WINDOW_MS = 2 * 60 * 1000;
+const SIMPCITY_MANUAL_CHALLENGE_BLOCK_THRESHOLD = 2;
+const xfpdSimpcityThreadWarmupInFlight = new Map();
+const xfpdSimpcityThreadWarmupLastAt = new Map();
+const xfpdSimpcityThreadTrustUntil = new Map();
+let xfpdSimpcityManualChallengeInProgress = false;
+
+function xfpdSimpcityNormalizeThreadKey(urlOrBase) {
+    try {
+        const u = new URL(String(urlOrBase || ''), window.location.href);
+        const path = String(u.pathname || '')
+            .replace(/\/page-\d+\/?$/i, '')
+            .replace(/\/$/, '');
+        return `${u.origin}${path}`;
+    } catch (e) {
+        return String(urlOrBase || '')
+            .split('?')[0]
+            .replace(/\/page-\d+\/?$/i, '')
+            .replace(/\/$/, '');
+    }
+}
+
+function xfpdIsSimpcityThreadTrusted(urlOrBase) {
+    try {
+        const key = xfpdSimpcityNormalizeThreadKey(urlOrBase);
+        const until = Number(xfpdSimpcityThreadTrustUntil.get(key) || 0);
+        if (!until) return false;
+        if (Date.now() >= until) {
+            xfpdSimpcityThreadTrustUntil.delete(key);
+            return false;
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+function xfpdMarkSimpcityThreadTrusted(urlOrBase, ttlMs = SIMPCITY_THREAD_TRUST_WINDOW_MS) {
+    try {
+        const key = xfpdSimpcityNormalizeThreadKey(urlOrBase);
+        xfpdSimpcityThreadTrustUntil.set(key, Date.now() + Math.max(5000, Number(ttlMs) || SIMPCITY_THREAD_TRUST_WINDOW_MS));
+    } catch (e) { }
+}
+
 function xfpdBunkrNormalizeBase(baseOrUrl) {
     try {
         const u = new URL(String(baseOrUrl || ''));
@@ -522,6 +569,82 @@ async function xfpdBunkrCfWarmup(url) {
     } catch (e) {
         // Best-effort
         return null;
+    }
+}
+
+async function xfpdSimpcityThreadWarmup(url, options = {}) {
+    try {
+        const target = String(url || '').trim();
+        if (!target) return null;
+
+        const opts = (options && typeof options === 'object') ? options : {};
+        const force = !!opts.force;
+        const warmupMs = Number(opts.ms);
+        const effectiveWarmupMs = Number.isFinite(warmupMs) && warmupMs > 0
+            ? warmupMs
+            : (force ? SIMPCITY_THREAD_FORCE_WARMUP_MS : SIMPCITY_THREAD_WARMUP_MS);
+        const warmupActive = !!opts.active;
+
+        const warmupKey = xfpdSimpcityNormalizeThreadKey(target);
+        const now = Date.now();
+        const lastAt = xfpdSimpcityThreadWarmupLastAt.get(warmupKey) || 0;
+        if (!force && now - lastAt < SIMPCITY_THREAD_WARMUP_COOLDOWN_MS) {
+            try { await h.delayedResolve(1000); } catch (e) { }
+            return null;
+        }
+
+        if (xfpdSimpcityThreadWarmupInFlight.has(warmupKey)) {
+            try { return await xfpdSimpcityThreadWarmupInFlight.get(warmupKey); } catch (e) { return null; }
+        }
+
+        xfpdSimpcityThreadWarmupLastAt.set(warmupKey, now);
+        const warmupPromise = (async () => {
+            await xfpdWarmupTab(target, effectiveWarmupMs, warmupActive);
+        })();
+        xfpdSimpcityThreadWarmupInFlight.set(warmupKey, warmupPromise);
+
+        try {
+            return await warmupPromise;
+        } finally {
+            xfpdSimpcityThreadWarmupInFlight.delete(warmupKey);
+        }
+    } catch (e) {
+        return null;
+    }
+}
+
+async function xfpdHandleSimpcityManualChallenge(threadUrl) {
+    if (xfpdSimpcityManualChallengeInProgress) {
+        return true;
+    }
+
+    xfpdSimpcityManualChallengeInProgress = true;
+
+    try {
+        xfpdPauseDownloads = true;
+
+        try {
+            GM_openInTab(String(threadUrl || ''), { active: true, insert: true, setParent: true });
+        } catch (e) {
+            try { window.open(String(threadUrl || ''), '_blank'); } catch (e2) { }
+        }
+
+        const proceed = window.confirm(
+            'Bloqueio 403 detectado em threads consecutivas.\n\n' +
+            'Uma aba da thread foi aberta para voce resolver o challenge manualmente (login/captcha).\n\n' +
+            'Depois de concluir, volte aqui e clique OK para continuar os downloads.\n' +
+            'Clique Cancelar para encerrar a fila de watched.'
+        );
+
+        if (proceed) {
+            try { xfpdMarkSimpcityThreadTrusted(threadUrl, 5 * 60 * 1000); } catch (e) { }
+            return true;
+        }
+
+        return false;
+    } finally {
+        xfpdPauseDownloads = false;
+        xfpdSimpcityManualChallengeInProgress = false;
     }
 }
 
@@ -1482,14 +1605,14 @@ const xfpdDebugScanCurrentPageResources = () => {
             unsafeWindow.xfpdDebugLastScan = report;
         }
     } catch (e) { }
-    console.log('[XFPD DEBUG] Page resource scan', report.map(row => ({
-        postId: row.postId,
-        postNumber: row.postNumber,
-        rawCount: row.rawCount,
-        imageCount: row.imageCount,
-        videoCount: row.videoCount,
-        hostCount: row.hostCount,
-    })));
+    // console.log('[XFPD DEBUG] Page resource scan', report.map(row => ({
+    //     postId: row.postId,
+    //     postNumber: row.postNumber,
+    //     rawCount: row.rawCount,
+    //     imageCount: row.imageCount,
+    //     videoCount: row.videoCount,
+    //     hostCount: row.hostCount,
+    // })));
     return report;
 };
 
@@ -2310,9 +2433,9 @@ const resolvers = [
             };
 
             const { source, dom } = await http.get(url);
-            try { console.log('[XFPD JPG6 TRACE] fetched page', { url, postId: null, hasDom: !!dom, sourceLength: (source || '').length }); } catch (e) { }
+            // try { console.log('[XFPD JPG6 TRACE] fetched page', { url, postId: null, hasDom: !!dom, sourceLength: (source || '').length }); } catch (e) { }
             const img = pickBestImage(dom) || '';
-            try { console.log('[XFPD JPG6 TRACE] extracted img', { url, img }); } catch (e) { }
+            // try { console.log('[XFPD JPG6 TRACE] extracted img', { url, img }); } catch (e) { }
             if (img) return String(img).replace('.md.', '.').replace('.th.', '.');
         } catch (e) { }
         return null;
@@ -5539,9 +5662,11 @@ const resolvers = [
                     const waitSec = Number(waitRaw);
                     if (Number.isFinite(waitSec) && waitSec > 0 && waitSec <= 300) {
                         try {
-                            if (progressCB) progressCB(`[Filester] Waiting ${Math.ceil(waitSec)}s...`);
+                            const waitAdj = Math.max(Math.ceil(waitSec), 5);
+                            if (progressCB) progressCB(`[Filester] Waiting ${waitAdj}s...`);
                         } catch (e) { }
-                        await new Promise(r => setTimeout(r, Math.ceil(waitSec) * 1000));
+                        const waitAdjMs = Math.max(Math.ceil(waitSec), 5) * 1000;
+                        await new Promise(r => setTimeout(r, waitAdjMs));
                         const dlRes2 = await http.base(
                             'POST',
                             `${apiBase}/api/public/download`,
@@ -5747,6 +5872,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     const zip = new JSZip();
     let zipFileCount = 0;
     let resolved = [];
+    let abortCurrentBatch = () => { };
 
     const statusLabel = statusUI.status;
     const filePB = statusUI.filePB;
@@ -5777,11 +5903,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     // Early resolve tracing: log parsedHosts and enabledHosts so we can see
     // why JPGX-like hosts produce no resolved resources in some posts.
     try {
-        console.log('[XFPD RESOLVE TRACE] parsedHosts summary', {
-            postId,
-            parsedHosts: (parsedHosts || []).map(ph => ({ name: ph.name, type: ph.type, resources: (ph.resources || []).slice(0, 8), resourceCount: (ph.resources || []).length })),
-            enabledHosts: (enabledHosts || []).map(hh => ({ name: hh.name, type: hh.type })),
-        });
+        // console.log('[XFPD RESOLVE TRACE] parsedHosts summary', {
+        //     postId,
+        //     parsedHosts: (parsedHosts || []).map(ph => ({ name: ph.name, type: ph.type, resources: (ph.resources || []).slice(0, 8), resourceCount: (ph.resources || []).length })),
+        //     enabledHosts: (enabledHosts || []).map(hh => ({ name: hh.name, type: hh.type })),
+        // });
     } catch (e) { }
 
 
@@ -5841,7 +5967,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         }
 
         if (xfpdPauseDownloads) {
-            await xfpdWaitWhilePaused();
+            h.ui.setText(statusLabel, `Pausado no post #${postNumber}...`);
+            return { paused: true, postId, postNumber };
         }
 
         const resources = host.resources;
@@ -5853,11 +5980,12 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             }
 
             if (xfpdPauseDownloads) {
-                await xfpdWaitWhilePaused();
+                h.ui.setText(statusLabel, `Pausado no post #${postNumber}...`);
+                return { paused: true, postId, postNumber };
             }
 
             try {
-                console.log('[XFPD RESOLVE-DBG] resource dump', { postId, host: host && host.name, resourceType: typeof resource, resourcePreview: (typeof resource === 'string' ? resource.slice(0,200) : (resource && resource.url ? String(resource.url).slice(0,200) : String(resource).slice(0,200))) });
+                // console.log('[XFPD RESOLVE-DBG] resource dump', { postId, host: host && host.name, resourceType: typeof resource, resourcePreview: (typeof resource === 'string' ? resource.slice(0,200) : (resource && resource.url ? String(resource.url).slice(0,200) : String(resource).slice(0,200))) });
             } catch (e) { }
 
             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
@@ -5871,21 +5999,21 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 for (const pattern of patterns) {
                     let strPattern = pattern.toString();
-                    try {
-                        console.log('[XFPD RESOLVE-DBG] pattern check', { postId, host: host && host.name, pattern: String(pattern) });
-                    } catch (e) { }
+                    // try {
+                    //     console.log('[XFPD RESOLVE-DBG] pattern check', { postId, host: host && host.name, pattern: String(pattern) });
+                    // } catch (e) { }
 
                     let shouldMatch = !h.contains(':!', strPattern);
 
                     strPattern = strPattern.replace(':!', '');
                     strPattern = h.re.toRegExp(h.re.toString(strPattern), 'is');
 
-                    try {
-                        const testResult = strPattern.test(resource);
-                        console.log('[XFPD RESOLVE-DBG] pattern test result', { postId, host: host && host.name, pattern: String(pattern), shouldMatch, testResult });
-                    } catch (e) {
-                        console.log('[XFPD RESOLVE-DBG] pattern test error', { postId, host: host && host.name, pattern: String(pattern), err: String(e) });
-                    }
+                    // try {
+                    //     const testResult = strPattern.test(resource);
+                    //     console.log('[XFPD RESOLVE-DBG] pattern test result', { postId, host: host && host.name, pattern: String(pattern), shouldMatch, testResult });
+                    // } catch (e) {
+                    //     console.log('[XFPD RESOLVE-DBG] pattern test error', { postId, host: host && host.name, pattern: String(pattern), err: String(e) });
+                    // }
 
                     if (shouldMatch && !strPattern.test(resource)) {
                         matched = false;
@@ -5905,9 +6033,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 let r = null;
 
                 try {
-                    try {
-                        console.log('[XFPD RESOLVER TRACE] invoking resolver', { postId, resource, host: host && host.name, patterns: patterns.map(p => String(p)) });
-                    } catch (e) { }
+                    // try {
+                    //     console.log('[XFPD RESOLVER TRACE] invoking resolver', { postId, resource, host: host && host.name, patterns: patterns.map(p => String(p)) });
+                    // } catch (e) { }
                     const progressCB = (t) => {
                         try {
                             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
@@ -5917,7 +6045,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                     r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
                     try {
-                        console.log('[XFPD RESOLVER TRACE] resolver result', { postId, resource, host: host && host.name, r: (typeof r === 'string' || typeof r === 'number') ? String(r).slice(0,200) : (Array.isArray(r.resolved) ? `array(${r.resolved.length})` : (r && r.url ? String(r.url).slice(0,200) : '[object]')) });
+                        // console.log('[XFPD RESOLVER TRACE] resolver result', { postId, resource, host: host && host.name, r: (typeof r === 'string' || typeof r === 'number') ? String(r).slice(0,200) : (Array.isArray(r.resolved) ? `array(${r.resolved.length})` : (r && r.url ? String(r.url).slice(0,200) : '[object]')) });
                     } catch (e) { }
                 } catch (e) {
                     if (host.name === 'Cyberdrop' && /cyberdrop\.[a-z]{2,}\/a\//i.test(String(resource))) {
@@ -6004,6 +6132,42 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             }
             filtered.push(r);
         }
+        resolved = filtered;
+    } catch (e) { }
+
+    // Always deduplicate exact resolved URLs (same file discovered from multiple anchors/hosts).
+    // Keep this independent from the "Skip Duplicates" setting because this prevents duplicate requests,
+    // while the setting still controls filename-based duplicate handling.
+    try {
+        const seenResolvedUrls = new Set();
+        const filtered = [];
+        const normalizeResolvedUrl = (u) => {
+            try {
+                const x = new URL(String(u || ''));
+                const path = String(x.pathname || '').replace(/\/+$/, '');
+                return `${x.protocol}//${x.host}${path}${x.search}`.toLowerCase();
+            } catch (e) {
+                return String(u || '').trim().toLowerCase().replace(/\/+$/, '');
+            }
+        };
+
+        for (const r of resolved) {
+            const urlStr = String((r && r.url) || '').trim();
+            if (!urlStr) {
+                filtered.push(r);
+                continue;
+            }
+
+            const key = normalizeResolvedUrl(urlStr);
+            if (seenResolvedUrls.has(key)) {
+                log.post.info(postId, `::Skipping duplicate resolved URL::: ${urlStr}`, postNumber);
+                continue;
+            }
+
+            seenResolvedUrls.add(key);
+            filtered.push(r);
+        }
+
         resolved = filtered;
     } catch (e) { }
 
@@ -6208,6 +6372,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         const requestProgress = [];
 
         const requests = [];
+
+        abortCurrentBatch = () => {
+            try {
+                requestProgress.forEach(r => {
+                    try { clearInterval(r.intervalId); } catch (e) { }
+                });
+                requests.forEach(r => {
+                    try { r.request && r.request.abort && r.request.abort(); } catch (e) { }
+                });
+            } catch (e) { }
+        };
 
         let completedBatchedDownloads = 0;
 
@@ -6657,6 +6832,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     return;
                 }
 
+                if (resource && resource.__xfpdFinalStarted) {
+                    return;
+                }
+
                 let { url, host, original, folderName } = resource;
                 const zippedForThis = !!(postSettings.zipped && !(resource && (resource.forceDirect || resource.forceUnzipped)));
                 const isGoFile = isGoFileUrl(url);
@@ -6748,7 +6927,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 const progressKey = isGoFile ? `${url}@@gofilepass${pass}` : url;
 
                 if (xfpdPauseDownloads) {
-                    await xfpdWaitWhilePaused();
+                    h.ui.setText(statusLabel, `Pausado no post #${postNumber}...`);
+                    return { paused: true, postId, postNumber };
                 }
 
                 h.ui.setElProps(statusLabel, { fontWeight: 'normal' });
@@ -6790,7 +6970,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 try {
                     const isJpgxLike = /simp\d+\.cuckcapital\.cr|jpg6\.su|jpg\d\.(su|cr)/i.test(String(url || '')) || (host && host.name && /JPGX/i.test(String(host.name)));
                     if (isJpgxLike) {
-                        console.log('[XFPD IMG TRACE] startDownload entry', { postId, url, original, host: host && host.name, folderName, isTurbo });
+                        // console.log('[XFPD IMG TRACE] startDownload entry', { postId, url, original, host: host && host.name, folderName, isTurbo });
                         log.post.info(postId, `::IMG TRACE startDownload::: ${url}`, postNumber);
                     }
                 } catch (e) { }
@@ -6805,8 +6985,25 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
 
                 let switchedToDirect = false;
+                const isTurboCdn = /turbocdn\.st/i.test(String(url || ''));
+
+                const claimFinalStart = () => {
+                    if (resource && resource.__xfpdFinalStarted) {
+                        return false;
+                    }
+
+                    if (resource) {
+                        resource.__xfpdFinalStarted = true;
+                    }
+
+                    return true;
+                };
 
                 const startDirectDownload = async (metaHint = null) => {
+                    if (!claimFinalStart()) {
+                        return;
+                    }
+
                     switchedToDirect = true;
 
                     try {
@@ -7028,15 +7225,15 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         const blob = r.response;
                                         const blobSize = blob && blob.size ? blob.size : 0;
 
-                                        console.log('[Pixeldrain list ZIP debug]', {
-                                            url,
-                                            status: r.status,
-                                            finalUrl: r.finalUrl || r.responseURL || '',
-                                            contentType: ct,
-                                            contentLength: cl,
-                                            blobSize,
-                                            headers: r.responseHeaders || '',
-                                        });
+                                        // console.log('[Pixeldrain list ZIP debug]', {
+                                        //     url,
+                                        //     status: r.status,
+                                        //     finalUrl: r.finalUrl || r.responseURL || '',
+                                        //     contentType: ct,
+                                        //     contentLength: cl,
+                                        //     blobSize,
+                                        //     headers: r.responseHeaders || '',
+                                        // });
 
                                         if (!(r.status >= 200 && r.status < 300) || !blob || !blobSize) {
                                             log.post.error(postId, `::Pixeldrain list ZIP blob fetch failed (status=${r.status}, ct=${ct}, size=${blobSize})::: ${url}`, postNumber);
@@ -7061,11 +7258,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
                                             return;
                                         } catch (e) {
-                                            console.log('[Pixeldrain list ZIP debug] saveAs failed, trying GM_download(blob:)', e);
+                                            // console.log('[Pixeldrain list ZIP debug] saveAs failed, trying GM_download(blob:)', e);
                                         }
 
                                         const blobUrl = URL.createObjectURL(blob);
-                                            try { console.log('[XFPD IMG TRACE] blob created for', url, { blobSize }); } catch (e) { }
+                                            // try { console.log('[XFPD IMG TRACE] blob created for', url, { blobSize }); } catch (e) { }
                                         GM_download({
                                             url: blobUrl,
                                             name: saveAsName,
@@ -7170,10 +7367,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         filesterDirectPreflightDone = true;
 
                                         const st0 = Number(pre && pre.status || 0) || 0;
-                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                        // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         const finalUrl = pre && (pre.finalUrl || pre.responseURL) ? String(pre.finalUrl || pre.responseURL) : '';
                                         const ok = st0 && st0 < 400;
-                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                        // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         if (ok) {
                                             directUrl = (finalUrl && /^https?:\/\//i.test(finalUrl)) ? finalUrl : String(cand);
 
@@ -7321,16 +7518,16 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             resolve(null);
                                         }
                                     });
-                                    console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                    // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                     const finalUrl = pre && (pre.finalUrl || pre.responseURL);
-                                    console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                    // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                     if (finalUrl && typeof finalUrl === 'string' && /^https?:\/\//i.test(finalUrl)) {
                                         dlOpts.url = finalUrl;
                                     }
                                 } catch (e) { }
                             }
-                            try { console.log('[XFPD IMG TRACE] About to GM_download', { url: dlOpts.url, headers: dlOpts.headers, name: dlOpts.name, postId }); } catch (e) { }
-                            GM_download(dlOpts);
+                            // try { console.log('[XFPD IMG TRACE] About to GM_download', { url: dlOpts.url, headers: dlOpts.headers, name: dlOpts.name, postId }); } catch (e) { }
+                            // GM_download(dlOpts);
                         }
 
                     } catch (e) {
@@ -7369,7 +7566,6 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 let abortReason = '';
                 let bunkrMaintenanceHandled = false;
 
-                const isTurboCdn = /turbocdn\.st/i.test(String(url || ''));
                 const filesterRef = isFilester ? String(filesterRefByUrl.get(String(url)) || (resource && resource.original) || 'https://filester.me/') : '';
                 const reqHeaders = isTurboCdn ? { Referer: 'https://turbo.cr/' } : (isFilester ? { Referer: filesterRef } : { Referer: reflink });
 
@@ -7435,6 +7631,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         if (p) p.new = response.loaded;
                     },
                     onload: async response => {
+                        if (!claimFinalStart()) {
+                            return;
+                        }
+
                         const p = requestProgress.find(r => r.url === progressKey);
                         if (p) clearInterval(p.intervalId);
 
@@ -8026,11 +8226,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     clearTimeout(safetyTimer);
                                     // not_whitelisted or other GM_download error - fall back to saveAs
                                     try { URL.revokeObjectURL(blobUrl); } catch (e) { }
-                                    console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
-                                    console.log(response);
+                                    // console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
+                                    // console.log(response);
                                     // saveAs can't create subfolders, so use flat name with thread title
                                     try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
-                                        console.log('saveAs fallback also failed:', e);
+                                        // console.log('saveAs fallback also failed:', e);
                                     }
                                     gmDlResolve(false);
                                 },
@@ -8205,9 +8405,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (xfpdPauseDownloads) {
                     h.ui.setElProps(statusLabel, { color: '#b38600', fontWeight: 'bold' });
                     h.ui.setText(statusLabel, `Pausado no post #${postNumber}...`);
-                    const pausedAt = Date.now();
-                    await xfpdWaitWhilePaused();
-                    batchStartTime += (Date.now() - pausedAt);
+                    abortCurrentBatch();
+                    return { paused: true, postId, postNumber };
                 }
 
                 await h.delayedResolve(1000);
@@ -8294,8 +8493,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             try {
                 blob = await zip.generateAsync({ type: 'blob' });
             } catch (e) {
-                console.log('JSZip failed to construct the Blob. For very large albums, try unzipped mode.');
-                console.log(e);
+                // console.log('JSZip failed to construct the Blob. For very large albums, try unzipped mode.');
+                // console.log(e);
                 blob = null;
             }
 
@@ -8316,11 +8515,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 },
                                 onerror: response => {
                                     try { URL.revokeObjectURL(url); } catch (e) { }
-                                    console.log(`Error writing file to disk. There may be more details below.`);
-                                    console.log(response);
-                                    console.log('Trying to write using FileSaver...');
+                                    // console.log(`Error writing file to disk. There may be more details below.`);
+                                    // console.log(response);
+                                    // console.log('Trying to write using FileSaver...');
                                     try { saveAs(blob, mainZipName); } catch (e) { }
-                                    console.log('Done!');
+                                    // console.log('Done!');
                                     resolve();
                                 },
                             });
@@ -8344,7 +8543,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     onerror: response => {
                                         try { URL.revokeObjectURL(url); } catch (e) { }
                                         // console.log(`Error writing generated.zip to disk. There may be more details below.`);
-                                        console.log(response);
+                                        // console.log(response);
                                         blob = null;
                                         resolve();
                                     },
@@ -8372,7 +8571,19 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     }
 
     window.logs = window.logs.filter(l => l.postId !== postId);
+
+    return { paused: false, postId, postNumber, totalDownloadable, completed };
 };
+
+async function xfpdDownloadPostWithPauseResume(parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks = {}, overrideThreadTitle = null) {
+    while (true) {
+        const result = await downloadPost(parsedPost, parsedHosts, enabledHostsCB, resolvers, getSettingsCB, statusUI, callbacks, overrideThreadTitle);
+        if (!result || !result.paused) {
+            return result;
+        }
+        await xfpdWaitWhilePaused();
+    }
+}
 
 /**
  * @param post
@@ -8576,6 +8787,20 @@ async function getAllWatchedThreads() {
     let currentPage = 1;
     let allPagesProcessed = false;
     let detectedLastPage = null;
+    const looksLikeThreadBlock = sourceText => {
+        const lowSrc = String(sourceText || '').slice(0, 2000).toLowerCase();
+        return /oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
+    };
+    const retrySchedule = [2500, 5000, 10000];
+    const blockedRetryDelayMs = 7000;
+    const retryAfterBlock = async pageUrl => {
+        try {
+            await xfpdSimpcityThreadWarmup(pageUrl, { force: true, ms: SIMPCITY_THREAD_FORCE_WARMUP_MS });
+        } catch (e) { }
+        try {
+            await h.delayedResolve(blockedRetryDelayMs);
+        } catch (e) { }
+    };
     const isSMG = window.location.hostname.includes('socialmediagirls');
     const baseUrl = isSMG
         ? 'https://forums.socialmediagirls.com/watched/threads'
@@ -8588,7 +8813,42 @@ async function getAllWatchedThreads() {
             const pageUrl = currentPage === 1 ? baseUrl : `${baseUrl}?page=${currentPage}`;
             console.log(`Collecting page ${currentPage} of watched: ${pageUrl}`);
 
-            const { source } = await h.http.get(pageUrl);
+            let source = null;
+            let retries = retrySchedule.length;
+
+            while (retries > 0) {
+                const response = await h.http.get(pageUrl, {}, {
+                    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    __xfpd_withCredentials: true,
+                }, 'text').catch(() => ({ source: null, status: 0, finalUrl: '' }));
+                source = response?.source || null;
+
+                if (source) {
+                    if (looksLikeThreadBlock(source)) {
+                        const status = response?.status ?? 'n/a';
+                        const finalUrl = response?.finalUrl || response?.responseURL || 'n/a';
+                        console.warn(`Watched threads page blocked (page ${currentPage}) status=${status} finalUrl=${finalUrl} url=${pageUrl}`);
+                        await retryAfterBlock(pageUrl);
+                        if (retries > 1) {
+                            const retryDelay = retrySchedule[retrySchedule.length - retries];
+                            console.warn(`Watched threads page ${currentPage} blocked. Retrying after ${retryDelay}ms...`);
+                            await h.delayedResolve(retryDelay);
+                            retries--;
+                            continue;
+                        }
+                        source = null;
+                    }
+                    break;
+                } else if (retries > 1) {
+                    console.warn(`Empty response for watched page ${currentPage}. Retrying...`);
+                    const retryDelay = retrySchedule[retrySchedule.length - retries];
+                    await h.delayedResolve(retryDelay);
+                    retries--;
+                } else {
+                    break;
+                }
+            }
+
             if (!source) {
                 console.warn('Empty response for watched page', pageUrl);
                 break;
@@ -8806,9 +9066,21 @@ function createWatchedThreadsUI(threads) {
     timeoutRow.appendChild(timeoutUnitSelect);
 
     // ===== SELECT 1: Threads com Checkboxes =====
+    const threadSelectRow = document.createElement('div');
+    threadSelectRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;';
+
     const threadSelectLabel = document.createElement('label');
-    threadSelectLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 10px;';
+    threadSelectLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 0;';
     threadSelectLabel.textContent = 'Threads para baixar:';
+
+    const threadSearchInput = document.createElement('input');
+    threadSearchInput.type = 'text';
+    threadSearchInput.placeholder = 'Pesquisar thread...';
+    threadSearchInput.setAttribute('aria-label', 'Pesquisar thread');
+    threadSearchInput.style.cssText = 'min-width: 220px; width: min(360px, 100%); padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px;';
+
+    threadSelectRow.appendChild(threadSelectLabel);
+    threadSelectRow.appendChild(threadSearchInput);
 
     const threadCheckboxContainer = document.createElement('div');
     threadCheckboxContainer.id = 'thread-checkboxes';
@@ -8823,6 +9095,8 @@ function createWatchedThreadsUI(threads) {
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     `;
 
+    const threadOptionLabels = [];
+
     threads.forEach(thread => {
         const label = document.createElement('label');
         label.style.cssText = 'display: block; margin: 5px 0; cursor: pointer;';
@@ -8834,10 +9108,24 @@ function createWatchedThreadsUI(threads) {
         checkbox.className = 'thread-checkbox';
         checkbox.style.marginRight = '8px';
 
+        const threadTitle = String(thread.title || 'Sem título');
+
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(thread.title || 'Sem título'));
+        label.appendChild(document.createTextNode(threadTitle));
+        label.dataset.threadTitle = threadTitle.toLowerCase();
 
         threadCheckboxContainer.appendChild(label);
+        threadOptionLabels.push(label);
+    });
+
+    threadSearchInput.addEventListener('input', () => {
+        const query = String(threadSearchInput.value || '').trim().toLowerCase();
+
+        threadOptionLabels.forEach(label => {
+            const title = String(label.dataset.threadTitle || '');
+            const show = !query || title.includes(query);
+            label.style.display = show ? 'block' : 'none';
+        });
     });
 
     // Botão Select All / Deselect All
@@ -8932,7 +9220,7 @@ function createWatchedThreadsUI(threads) {
     // Montar container
     controlsBody.appendChild(pauseRow);
     controlsBody.appendChild(timeoutRow);
-    controlsBody.appendChild(threadSelectLabel);
+    controlsBody.appendChild(threadSelectRow);
     controlsBody.appendChild(threadCheckboxContainer);
     controlsBody.appendChild(threadToggleBtn);
     controlsBody.appendChild(orderLabel);
@@ -8974,52 +9262,208 @@ const addDownloadWatchedButton = () => {
 
 async function processThreadFromHTML(url, filterType = 'date') {
     try {
+        let threadBlockedOnInitialLoad = false;
+
         const looksLikeThreadBlock = sourceText => {
             const lowSrc = String(sourceText || '').slice(0, 2000).toLowerCase();
             return /oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
         };
 
-        const baseUrl = url.replace(/\/page-\d+/, '').replace(/\/$/, '').split('?')[0];
+        const retrySchedule = [5000, 10000, 16000, 22000];
+        const blockedRetryDelayMs = 7000;
+        const threadFetchTelemetry = {
+            blockedDetections: 0,
+            retryWaits: 0,
+            warmupRuns: 0,
+            warmupRecovered: 0,
+            gmSuccess: 0,
+            nativeSuccess: 0,
+            domSuccess: 0,
+            skippedPagesBlocked: 0,
+        };
+
+        const logThreadFetchState = (label, pageLabel, pageUrl, response) => {
+            const status = response?.status ?? 'n/a';
+            const finalUrl = response?.finalUrl || response?.responseURL || 'n/a';
+            console.warn(`${label} (page ${pageLabel}) status=${status} finalUrl=${finalUrl} url=${pageUrl}`);
+        };
+
+        const getThreadPageNative = async pageUrl => {
+            try {
+                const res = await fetch(pageUrl, {
+                    method: 'GET',
+                    credentials: 'include',
+                    redirect: 'follow',
+                    cache: 'no-store',
+                });
+                const source = await res.text();
+                return { source, status: res.status, finalUrl: res.url || pageUrl };
+            } catch (e) {
+                return { source: null, status: 0, finalUrl: '' };
+            }
+        };
+
+        const getCurrentDocSourceFor = pageUrl => {
+            try {
+                const currentUrl = new URL(window.location.href);
+                const targetUrl = new URL(pageUrl, window.location.href);
+
+                const getBasePath = pathname => String(pathname || '').replace(/\/page-\d+\/?$/i, '').replace(/\/$/, '');
+                const getPageNum = pathname => {
+                    const m = String(pathname || '').match(/\/page-(\d+)\/?$/i);
+                    return m ? parseInt(m[1], 10) : 1;
+                };
+
+                const sameThread = currentUrl.origin === targetUrl.origin && getBasePath(currentUrl.pathname) === getBasePath(targetUrl.pathname);
+                const samePage = getPageNum(currentUrl.pathname) === getPageNum(targetUrl.pathname);
+
+                if (sameThread && samePage) {
+                    return String(document.documentElement?.outerHTML || '');
+                }
+            } catch (e) { }
+            return null;
+        };
+
+        const getThreadPage = async pageUrl => {
+            const trusted = xfpdIsSimpcityThreadTrusted(pageUrl);
+            let sameOrigin = false;
+            try {
+                sameOrigin = new URL(pageUrl, window.location.href).origin === window.location.origin;
+            } catch (e) { }
+
+            // When the current browser session has recently proven access to this thread,
+            // prefer native fetch first because it usually carries the challenge-cleared state.
+            if (sameOrigin && trusted) {
+                const nativeFirst = await getThreadPageNative(pageUrl);
+                const nativeFirstSource = String(nativeFirst?.source || '');
+                if (nativeFirstSource && !looksLikeThreadBlock(nativeFirstSource)) {
+                    threadFetchTelemetry.nativeSuccess++;
+                    xfpdMarkSimpcityThreadTrusted(pageUrl);
+                    return nativeFirst;
+                }
+            }
+
+            const gmResponse = await h.http.get(pageUrl, {}, {
+                Referer: pageUrl,
+                __xfpd_withCredentials: true,
+            }, 'text').catch(e => ({ source: null, status: 0, finalUrl: '' }));
+
+            const gmSource = String(gmResponse?.source || '');
+            if (gmSource && !looksLikeThreadBlock(gmSource)) {
+                threadFetchTelemetry.gmSuccess++;
+                xfpdMarkSimpcityThreadTrusted(pageUrl);
+                return gmResponse;
+            }
+
+            const nativeResponse = await getThreadPageNative(pageUrl);
+            const nativeSource = String(nativeResponse?.source || '');
+            if (nativeSource && !looksLikeThreadBlock(nativeSource)) {
+                console.log(`Thread fetch fallback succeeded with window.fetch: ${pageUrl}`);
+                threadFetchTelemetry.nativeSuccess++;
+                xfpdMarkSimpcityThreadTrusted(pageUrl);
+                return nativeResponse;
+            }
+
+            const currentDocSource = getCurrentDocSourceFor(pageUrl);
+            if (currentDocSource) {
+                console.log(`Thread fetch fallback succeeded with current document HTML: ${pageUrl}`);
+                threadFetchTelemetry.domSuccess++;
+                xfpdMarkSimpcityThreadTrusted(pageUrl);
+                return { source: currentDocSource, status: 200, finalUrl: window.location.href };
+            }
+
+            return nativeSource ? nativeResponse : gmResponse;
+        };
+
+        const retryAfterBlock = async (pageUrl, originUrl) => {
+            try {
+                if (!xfpdIsSimpcityThreadTrusted(originUrl || pageUrl)) {
+                    threadFetchTelemetry.warmupRuns++;
+                    await xfpdSimpcityThreadWarmup(originUrl || pageUrl, { force: true, ms: SIMPCITY_THREAD_FORCE_WARMUP_MS });
+                }
+            } catch (e) { }
+            try {
+                await h.delayedResolve(blockedRetryDelayMs);
+            } catch (e) { }
+        };
+
+        const waitUntilThreadUnblocked = async (pageUrl, originUrl) => {
+            const verifyAttempts = 2;
+            for (let i = 0; i < verifyAttempts; i++) {
+                await retryAfterBlock(pageUrl, originUrl);
+                const probe = await getThreadPage(pageUrl);
+                const probeSource = String(probe?.source || '');
+                if (probeSource && !looksLikeThreadBlock(probeSource)) {
+                    threadFetchTelemetry.warmupRecovered++;
+                    return probe;
+                }
+            }
+            return null;
+        };
+
+        const baseUrl = `${url.replace(/\/page-\d+\/?/i, '').split('?')[0].replace(/\/+$/, '')}/`;
 
         // Adicionar filtro na URL se for reaction_score
         const urlWithFilter = filterType === 'reaction_score' ? `${baseUrl}?order=reaction_score` : baseUrl;
 
         console.log(`Detecting the last page of the thread: ${baseUrl} (Filter: ${filterType})`);
 
+        // Give the browser a chance to solve the DDoS-Guard interstitial before the first request.
+        if (!xfpdIsSimpcityThreadTrusted(urlWithFilter)) {
+            await xfpdSimpcityThreadWarmup(urlWithFilter);
+        }
+
         // Retry logic for initial page fetch
         let firstPageSource = null;
-        let retries = 2;
-        let retryDelay = 2000;
+        let retries = retrySchedule.length;
         
         while (retries > 0) {
-            const response = await h.http.get(urlWithFilter).catch(e => ({ source: null }));
+            const response = await getThreadPage(urlWithFilter);
             firstPageSource = response?.source || null;
             
             if (firstPageSource) {
                 // Check if response is a DDoS-Guard / Oopsies / login wall challenge
                 if (looksLikeThreadBlock(firstPageSource)) {
+                    threadFetchTelemetry.blockedDetections++;
+                    logThreadFetchState('Thread block detected on initial page load', 1, urlWithFilter, response);
+                    const recovered = await waitUntilThreadUnblocked(urlWithFilter, baseUrl);
+                    if (recovered?.source && !looksLikeThreadBlock(recovered.source)) {
+                        firstPageSource = recovered.source;
+                        xfpdMarkSimpcityThreadTrusted(baseUrl);
+                        break;
+                    }
                     if (retries > 1) {
+                        const retryDelay = retrySchedule[retrySchedule.length - retries];
                         console.warn(`Thread blocked on initial page load. Retrying after ${retryDelay}ms...`);
+                        threadFetchTelemetry.retryWaits++;
                         await h.delayedResolve(retryDelay);
                         retries--;
-                        retryDelay *= 2;
                         continue;
                     }
+                    console.warn('Thread remained blocked on initial page after all retries. Skipping this thread.');
+                    threadBlockedOnInitialLoad = true;
+                    firstPageSource = null;
                 }
                 break;
             } else if (retries > 1) {
+                logThreadFetchState('Failed to fetch initial page', 1, urlWithFilter, response);
+                const retryDelay = retrySchedule[retrySchedule.length - retries];
                 console.warn(`Failed to fetch initial page. Retrying after ${retryDelay}ms...`);
                 await h.delayedResolve(retryDelay);
                 retries--;
-                retryDelay *= 2;
             } else {
                 break;
             }
         }
         
-        if (!firstPageSource) {
+        if (!firstPageSource || looksLikeThreadBlock(firstPageSource)) {
             console.error(`Failed to load the base page: ${baseUrl}`);
-            return;
+            return {
+                ok: false,
+                blocked: threadBlockedOnInitialLoad || looksLikeThreadBlock(firstPageSource),
+                reason: 'initial_page_unavailable',
+                baseUrl,
+            };
         }
 
         const parser = new DOMParser();
@@ -9058,6 +9502,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
 
         let allPostData = [];
+        const seenPostIds = new Set();
 
         let statusContainer = document.getElementById('download-watched-status');
         if (!statusContainer) {
@@ -9090,7 +9535,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
             }
 
             try {
-                let pageUrl = page === 1 ? baseUrl : `${baseUrl}/page-${page}`;
+                let pageUrl = page === 1 ? baseUrl : `${baseUrl}page-${page}/`;
 
                 // Adicionar filtro em cada página
                 if (filterType === 'reaction_score') {
@@ -9101,38 +9546,55 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                 // Retry logic for DDoS-Guard and other temporary blocks
                 let source = null;
-                let retries = 2;
-                let retryDelay = 2000;
+                let retries = retrySchedule.length;
                 
                 while (retries > 0) {
-                    const response = await h.http.get(pageUrl).catch(e => ({ source: null }));
+                    const response = await getThreadPage(pageUrl);
                     source = response?.source || null;
                     
                     if (source) {
                         // Check if response is a DDoS-Guard / Oopsies / login wall challenge
                         if (looksLikeThreadBlock(source)) {
+                            threadFetchTelemetry.blockedDetections++;
+                            logThreadFetchState('Thread block detected on page fetch', page, pageUrl, response);
+                            const recovered = await waitUntilThreadUnblocked(pageUrl, baseUrl);
+                            if (recovered?.source && !looksLikeThreadBlock(recovered.source)) {
+                                source = recovered.source;
+                                xfpdMarkSimpcityThreadTrusted(baseUrl);
+                                break;
+                            }
                             if (retries > 1) {
+                                const retryDelay = retrySchedule[retrySchedule.length - retries];
                                 console.warn(`Thread blocked on page ${page}. Retrying after ${retryDelay}ms...`);
+                                threadFetchTelemetry.retryWaits++;
                                 await h.delayedResolve(retryDelay);
                                 retries--;
-                                retryDelay *= 2; // Exponential backoff
                                 continue;
                             } else {
                                 console.warn(`Thread block persisted after retries on page ${page}: ${pageUrl}`);
+                                threadFetchTelemetry.skippedPagesBlocked++;
+                                source = null;
                                 break; // Exit retry loop, will skip this page
                             }
                         }
+                        xfpdMarkSimpcityThreadTrusted(baseUrl);
                         break; // Success, exit retry loop
                     } else if (retries > 1) {
+                        logThreadFetchState('Failed to fetch page', page, pageUrl, response);
+                        const retryDelay = retrySchedule[retrySchedule.length - retries];
                         console.warn(`Failed to fetch page ${page}. Retrying after ${retryDelay}ms...`);
                         await h.delayedResolve(retryDelay);
                         retries--;
-                        retryDelay *= 2;
                     } else {
                         break;
                     }
                 }
                 
+                if (source && looksLikeThreadBlock(source)) {
+                    threadFetchTelemetry.skippedPagesBlocked++;
+                    source = null;
+                }
+
                 if (!source) {
                     console.warn(`Page ${page} empty or failed: ${pageUrl}`);
                     continue;
@@ -9140,25 +9602,26 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                 const doc = parser.parseFromString(source, 'text/html');
 
-                // Select post containers (not their sub-elements) to avoid duplicates.
-                // Use article.message--post primarily (simpcity), then fallbacks.
-                let postElements = [...doc.querySelectorAll('article.message--post, article.message.js-post, article.message-main, article[data-content*="post-"]')];
+                // Select only top-level message containers to avoid collecting nested nodes
+                // from the same post (which can lead to duplicate downloads).
+                let postElements = [...doc.querySelectorAll('article.message--post, article.message.js-post, article.message[data-content*="post-"], article.message')];
 
                 // If nothing found, try a couple of fallbacks and log a short snippet for diagnosis.
                 if (!postElements.length) {
                     // Detect common blockers (login wall / Cloudflare interstitial / DDoS-Guard / Oopsies page)
                     if (looksLikeThreadBlock(source)) {
+                        threadFetchTelemetry.skippedPagesBlocked++;
                         console.warn(`Page ${page} looks blocked or requires login: ${pageUrl}`);
                         console.warn(String(source || '').slice(0, 500));
                         continue;
                     }
 
-                    // Try broader article/message container selectors as fallback
-                    postElements = [...doc.querySelectorAll('article.message, .message[data-content*="post-"], .js-post')];
+                    // Try broader top-level selectors as fallback.
+                    postElements = [...doc.querySelectorAll('article.message, .message[data-content*="post-"], article.js-post')];
 
                     if (!postElements.length) {
                         console.log(`No posts found on page ${page}`);
-                        console.log(`Source snippet: ${String(source || '').slice(0, 500)}`);
+                        // console.log(`Source snippet: ${String(source || '').slice(0, 500)}`);
                         continue;
                     }
                 }
@@ -9184,6 +9647,13 @@ async function processThreadFromHTML(url, filterType = 'date') {
                         if (!parsedHosts.length) continue;
 
 
+                        const postId = String(parsedPost.postId || '').trim();
+                        if (!postId) continue;
+                        if (seenPostIds.has(postId)) {
+                            continue;
+                        }
+                        seenPostIds.add(postId);
+
                         let timestamp = parsedPost.date || new Date().toISOString();
                         if (typeof parsedPost.date === 'string') {
                             timestamp = new Date(parsedPost.date).getTime();
@@ -9196,7 +9666,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
                             parsedHosts,
                             timestamp,
                             page,
-                            postId: parsedPost.id || Math.random().toString(36).slice(2)
+                            postId
                         });
                     } catch (err) {
                         console.error(`Error parsing post on page ${page}:`, err);
@@ -9209,6 +9679,18 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 console.error(`Error general on page ${page}:`, err);
             }
         }
+
+        console.log('[Thread fetch telemetry]', {
+            baseUrl,
+            blockedDetections: threadFetchTelemetry.blockedDetections,
+            retryWaits: threadFetchTelemetry.retryWaits,
+            warmupRuns: threadFetchTelemetry.warmupRuns,
+            warmupRecovered: threadFetchTelemetry.warmupRecovered,
+            gmSuccess: threadFetchTelemetry.gmSuccess,
+            nativeSuccess: threadFetchTelemetry.nativeSuccess,
+            domSuccess: threadFetchTelemetry.domSuccess,
+            skippedPagesBlocked: threadFetchTelemetry.skippedPagesBlocked,
+        });
 
         allPostData.sort((a, b) => b.timestamp - a.timestamp);
 
@@ -9251,16 +9733,24 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 // log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
 
                 try {
-                    await downloadPost(
-                        parsedPost,
-                        parsedHosts,
-                        getEnabledHostsCB,
-                        resolvers,
-                        getSettingsCB,
-                        { status: statusLabel, filePB, totalPB },
-                        {},
-                        threadTitle
-                    );
+                    while (true) {
+                        const result = await xfpdDownloadPostWithPauseResume(
+                            parsedPost,
+                            parsedHosts,
+                            getEnabledHostsCB,
+                            resolvers,
+                            getSettingsCB,
+                            { status: statusLabel, filePB, totalPB },
+                            {},
+                            threadTitle
+                        );
+
+                        if (!result || !result.paused) {
+                            break;
+                        }
+
+                        await xfpdWaitWhilePaused();
+                    }
                 } finally {
                     xfpdClearActiveWatchedPost();
                 }
@@ -9279,8 +9769,22 @@ async function processThreadFromHTML(url, filterType = 'date') {
         }
 
         // console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
+        return {
+            ok: true,
+            blocked: false,
+            processedPosts: totalProcessed,
+            totalPosts: allPostData.length,
+            baseUrl,
+        };
     } catch (fatalErr) {
         // console.error('Erro fatal na thread', url, fatalErr);
+        return {
+            ok: false,
+            blocked: false,
+            reason: 'fatal_error',
+            error: String((fatalErr && fatalErr.message) || fatalErr || 'unknown'),
+            baseUrl: String(url || ''),
+        };
     }
 }
 // ---- Download All Pages helper ----
@@ -9525,6 +10029,8 @@ let skipCurrentThread = false;
                         .filter(t => selectedThreadUrls.includes(t.url))
                         .map(t => t.url);
 
+                    let consecutiveBlockedThreads = 0;
+
                     // Aplicar ordem
                     if (orderValue === 'oldest') {
                         urlsToProcess = urlsToProcess.reverse();
@@ -9546,9 +10052,37 @@ let skipCurrentThread = false;
                         log.write(null, `Processando thread: ${url} (Filtro: ${filterValue})`, 'INFO');
 
                         // Adicionar task ao worker pool
-                        await WorkerPool.addTask(async () => {
-                            await processThreadFromHTML(url, filterValue);
+                        const result = await WorkerPool.addTask(async () => {
+                            return await processThreadFromHTML(url, filterValue);
                         });
+
+                        if (result && result.blocked) {
+                            consecutiveBlockedThreads++;
+                            log.write(null, `Thread bloqueada (${consecutiveBlockedThreads}x seguidas): ${url}`, 'WARN');
+
+                            if (consecutiveBlockedThreads >= SIMPCITY_MANUAL_CHALLENGE_BLOCK_THRESHOLD) {
+                                log.write(null, 'Bloqueio consecutivo detectado. Abrindo challenge manual...', 'WARN');
+
+                                if (threadUIControls && threadUIControls.pauseCheckbox) {
+                                    threadUIControls.pauseCheckbox.checked = true;
+                                }
+
+                                const shouldContinue = await xfpdHandleSimpcityManualChallenge(url);
+
+                                if (threadUIControls && threadUIControls.pauseCheckbox) {
+                                    threadUIControls.pauseCheckbox.checked = false;
+                                }
+
+                                consecutiveBlockedThreads = 0;
+
+                                if (!shouldContinue) {
+                                    log.write(null, 'Fila de watched encerrada pelo usuario apos challenge.', 'WARN');
+                                    break;
+                                }
+                            }
+                        } else {
+                            consecutiveBlockedThreads = 0;
+                        }
                     }
 
                     log.write(null, 'Download de todos watched threads concluído', 'INFO');
@@ -9677,7 +10211,15 @@ let skipCurrentThread = false;
 
             btnDownloadPost.addEventListener('click', e => {
                 e.preventDefault();
-                downloadPost(parsedPost, parsedHosts, getEnabledHostsCB, resolvers, getSettingsCB, statusUI, postDownloadCallbacks);
+                (async () => {
+                    while (true) {
+                        const result = await xfpdDownloadPostWithPauseResume(parsedPost, parsedHosts, getEnabledHostsCB, resolvers, getSettingsCB, statusUI, postDownloadCallbacks);
+                        if (!result || !result.paused) {
+                            break;
+                        }
+                        await xfpdWaitWhilePaused();
+                    }
+                })();
             });
         });
 
@@ -9698,19 +10240,27 @@ let skipCurrentThread = false;
             btnDownloadPage.addEventListener('click', e => {
                 e.preventDefault();
 
-                selectedPosts
-                    .filter(s => s.enabled)
-                    .forEach(s => {
-                        downloadPost(
-                            s.post.parsedPost,
-                            s.post.parsedHosts,
-                            s.post.enabledHostsCB,
-                            s.post.resolvers,
-                            s.post.getSettingsCB,
-                            s.post.statusUI,
-                            s.post.postDownloadCallbacks,
-                        );
-                    });
+                (async () => {
+                    for (const s of selectedPosts.filter(s => s.enabled)) {
+                        while (true) {
+                            const result = await xfpdDownloadPostWithPauseResume(
+                                s.post.parsedPost,
+                                s.post.parsedHosts,
+                                s.post.enabledHostsCB,
+                                s.post.resolvers,
+                                s.post.getSettingsCB,
+                                s.post.statusUI,
+                                s.post.postDownloadCallbacks,
+                            );
+
+                            if (!result || !result.paused) {
+                                break;
+                            }
+
+                            await xfpdWaitWhilePaused();
+                        }
+                    }
+                })();
             });
             // TODO: Extract to ui.js
             const color = ui.getTooltipBackgroundColor();
