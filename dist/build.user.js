@@ -308,14 +308,14 @@ const filesterRetryAttemptsByKey = new Map(); // token/url -> number of retries 
 function filesterTokenFromVUrl(u) {
     try {
         const m = /\/v\/([^\/?#]+)/i.exec(String(u || ''));
-           return m && m[1] ? String(m[1]) : '';
+        return m && m[1] ? String(m[1]) : '';
     } catch (e) { return ''; }
 }
 
 function filesterBuildCandidates(token) {
     const t = String(token || '').trim();
     if (!t) return [];
-        const order = [6, 1, 2, 3, 4, 5, 7, 8];
+    const order = [6, 1, 2, 3, 4, 5, 7, 8];
     const out = [];
     for (const n of order) out.push(`https://cache${n}.filester.me/v/${t}`);
     out.push(`https://filester.me/v/${t}`);
@@ -714,7 +714,7 @@ async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, orig
         // Immediately blacklist this domain and return null so the caller tries the next domain.
         if (BUNKR_FASTFAIL_ON_403 && (Number(lastStatus || 0) === 403) && !allowWarmup) {
             xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-                    const status = Number(last?.status || 0);
+            const status = Number(last?.status || 0);
         }
         if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && xfpdLooksLikeCfChallenge(lastText, null)) {
             xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
@@ -1161,6 +1161,9 @@ const parsers = {
 
             // Try to locate the message content inside the resolved container
             let messageContent = null;
+
+
+
             try {
                 messageContent = container.querySelector('.message-content .message-userContent') || container.querySelector('.message-userContent');
             } catch (e) { messageContent = null; }
@@ -1171,6 +1174,26 @@ const parsers = {
             }
 
             const messageContentClone = messageContent.cloneNode(true);
+
+            messageContentClone
+                .querySelectorAll('.bbCodeBlock--unfurl[data-url]')
+                .forEach(el => {
+                    const url = el.dataset.url;
+                    if (!url) return;
+
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.textContent = url;
+
+                    el.appendChild(a);
+                });
+
+            // console.log(
+            //     'imgs',
+            //     messageContentClone.querySelectorAll('img').length,
+            //     'unfurls',
+            //     messageContentClone.querySelectorAll('.bbCodeBlock--unfurl').length
+            // );
 
             // Find footer (may be inside article or sibling)
             let footer = container.querySelector('footer');
@@ -1452,6 +1475,14 @@ const parsers = {
 
                     let matches = h.re.matchAll(pattern, postContent).unique();
 
+                    // if (matches.length) {
+                    //     console.log(
+                    //         '[MATCH]',
+                    //         name,
+                    //         matches
+                    //     );
+                    // }
+
                     matches = matches.map(url => {
                         // Some XenForo post HTML can leak into the match (e.g. trailing </a>...</div>), which then
                         // creates "ghost" resources (and broken filenames like "div>"). Strip anything after the URL.
@@ -1492,6 +1523,7 @@ const parsers = {
                         return 'Links';
                     })[0];
 
+
                     parsed.push({
                         name,
                         type: 'single',
@@ -1521,6 +1553,8 @@ const parsers = {
                     id: Math.round(Math.random() * Number.MAX_SAFE_INTEGER),
                 }))
                 .filter(p => p.resources.length);
+
+
         },
     },
 };
@@ -1605,14 +1639,14 @@ const xfpdDebugScanCurrentPageResources = () => {
             unsafeWindow.xfpdDebugLastScan = report;
         }
     } catch (e) { }
-    // console.log('[XFPD DEBUG] Page resource scan', report.map(row => ({
-    //     postId: row.postId,
-    //     postNumber: row.postNumber,
-    //     rawCount: row.rawCount,
-    //     imageCount: row.imageCount,
-    //     videoCount: row.videoCount,
-    //     hostCount: row.hostCount,
-    // })));
+    console.log('[XFPD DEBUG] Page resource scan', report.map(row => ({
+        postId: row.postId,
+        postNumber: row.postNumber,
+        rawCount: row.rawCount,
+        imageCount: row.imageCount,
+        videoCount: row.videoCount,
+        hostCount: row.hostCount,
+    })));
     return report;
 };
 
@@ -2275,6 +2309,12 @@ const hosts = [
     ['Pornhub:video', [/([~an@]+\.)?pornhub.com\/view_video/]],
     ['Noodlemagazine:video', [/(adult.)?noodlemagazine.com\/watch\//]],
     ['Spankbang:video', [/spankbang.com\/.*?\/video/]],
+    ['Erome:albums', [/erome\.com\/a\//]],
+    ['Erome:media', [/erome\.com\/i\//]], ['Instagram:post', [/instagram\.com\/(p|reel|tv)\//]], ['Youtube:video', [/(youtube\.com\/watch\?v=|youtu\.be\/)/]], ['Youtube:embed', [/youtube\.com\/embed\//]], ['Sendvid:video', [/sendvid\.com\/(embed\/)?[a-z0-9]+/]], ['Xvideos:video', [/xvideos\.(com|es)\/video\d+/]], ['Spankbang:video', [/spankbang\.com\/.*?\/video/]], ['Forum:Attachments', [/\/attachments\//]], ['Forum:VideoAttachments', [/\/data\/video\//]], ['Instagram:cdn', [/cdninstagram\.com|instagram\.fbcdn\.net/]], ['Youtube:cdn', [/i\.ytimg\.com/]], ['Erome:albums', [/data-url="https:\/\/(?:www\.)?erome\.com\/a\//]], ['Gofile:', [/data-url="https:\/\/gofile\.io\/d\//]], ['Pixeldrain:', [/data-url="https:\/\/(?:www\.)?pixeldrain\.(?:com|net)\/[lu]\//]], ['SMG:Images', [
+        /smgmedia\.socialmediagirls\.com\/forum\//
+    ]], ['SMG:Images', [
+        /smgmedia\.socialmediagirls\.com\/.*\.(jpg|jpeg|png|gif|webp)/i
+    ]],
 ];
 
 /**
@@ -2455,7 +2495,7 @@ const resolvers = [
 
             const posts = [];
 
-            // console.log(`[coomer.st] Resolving profile: ${profileId}`);
+            console.log(`[coomer.st] Resolving profile: ${profileId}`);
 
             let page = 1;
 
@@ -2478,7 +2518,7 @@ const resolvers = [
                     finalURL = `${host}${nextPage.getAttribute('href')}`;
                 }
 
-                // console.log(`[coomer.st] Resolved page: ${page}`);
+                console.log(`[coomer.st] Resolved page: ${page}`);
 
                 page++;
             } while (nextPage);
@@ -2531,7 +2571,7 @@ const resolvers = [
                     );
                 }
 
-                // console.log(`[coomer.st] Resolved post ${index} / ${posts.length}`);
+                console.log(`[coomer.st] Resolved post ${index} / ${posts.length}`);
 
                 index++;
             }
@@ -3098,7 +3138,142 @@ const resolvers = [
             };
         }
     ],
+    [
+        [
+            /smgmedia\.socialmediagirls\.com\/forum\//i,
+            /forums\.socialmediagirls\.com/i
+        ], async (url, http) => {
+            const { dom } = await http.get(url);
+            const resolved = new Set();
 
+            // 1. PRIORIDADE MÁXIMA: Links diretos dos attachments (melhor qualidade)
+            dom.querySelectorAll('a.file-preview, .attachmentList a[href*="smgmedia"]')
+                .forEach(el => {
+                    const href = el.getAttribute('href');
+                    if (href && /\.(jpg|jpeg|png|gif|webp)$/i.test(href)) {
+                        resolved.add(href);
+                    }
+                });
+
+            // 2. bbImageWrapper (imagens inline)
+            dom.querySelectorAll('div.bbImageWrapper img, div.bbImageWrapper source')
+                .forEach(el => {
+                    const src = el.getAttribute('data-src') ||
+                        el.getAttribute('src') ||
+                        el.getAttribute('data-original');
+                    if (src && src.includes('smgmedia.socialmediagirls.com')) {
+                        resolved.add(src);
+                    }
+                });
+
+            // 3. Todas as imagens com data-src/src do domínio
+            dom.querySelectorAll('img').forEach(el => {
+                const src = el.getAttribute('data-src') ||
+                    el.getAttribute('src') ||
+                    el.getAttribute('data-original');
+
+                if (!src) return;
+                if (!src.includes('smgmedia.socialmediagirls.com')) return;
+
+                // Evita thumbnails
+                if (src.includes('/thumb/') || src.includes('thumb_')) return;
+
+                resolved.add(src);
+            });
+
+            // 4. Fallback mais amplo (data-url, lazy loading, etc)
+            dom.querySelectorAll('[data-src], [data-url], [data-original]').forEach(el => {
+                const src = el.getAttribute('data-src') ||
+                    el.getAttribute('data-url') ||
+                    el.getAttribute('data-original');
+
+                if (src && /\.(jpg|jpeg|png|gif|webp)$/i.test(src) &&
+                    src.includes('smgmedia.socialmediagirls.com')) {
+                    resolved.add(src);
+                }
+            });
+
+            return {
+                resolved: [...resolved]
+            };
+        }
+    ],
+    [
+        [/xvideos\.(com|es|net)\/video/], async (url, http) => {
+        const { dom } = await http.get(url);
+        const resolved = new Set();
+
+        // Procura no script (melhor método atualmente)
+        dom.querySelectorAll('script').forEach(script => {
+            const content = script.textContent || '';
+            const match = content.match(/"(https?:\/\/[^"]+\.xvideos[^"]+\.mp4[^"]*)"/i);
+            if (match) resolved.add(match[1]);
+        });
+
+        // Fallback no player
+        dom.querySelectorAll('video source, video').forEach(el => {
+            const src = el.getAttribute('src');
+            if (src && src.includes('.mp4')) resolved.add(src);
+        });
+
+        return { resolved: [...resolved] };
+    }],
+    [
+        [/pornhub\.com\/view_video\.php/], async (url, http) => {
+        const { dom, text } = await http.get(url);  // pega também o texto bruto
+
+        const resolved = new Set();
+
+        // Procura links diretos no HTML/JS
+        const mp4Match = text.match(/"(https?:\/\/[^"]+\.mp4[^"]*)"/i);
+        if (mp4Match) resolved.add(mp4Match[1]);
+
+        // Links HLS (mais comum)
+        const hlsMatch = text.match(/"(https?:\/\/[^"]+\.m3u8[^"]*)"/i);
+        if (hlsMatch) resolved.add(hlsMatch[1]);
+
+        return { resolved: [...resolved] };
+    }],
+    [
+        [/erome\.com\/a\//i],
+        async (url, http) => {
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+            // 1. VIDEOS
+            dom.querySelectorAll('video source, video').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            // 2. IMAGENS (melhorado)
+            dom.querySelectorAll('.img[data-src], img[data-src], [data-full], [data-original]').forEach(el => {
+                const src = el.getAttribute('data-src') ||
+                    el.getAttribute('data-full') ||
+                    el.getAttribute('data-original') ||
+                    el.getAttribute('src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            // 3. Fallback mais agressivo (mas limpo)
+            dom.querySelectorAll('img').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (!src || !src.startsWith('http')) return;
+
+                if (src.includes('blur') ||
+                    src.includes('placeholder') ||
+                    src.includes('thumb') && !src.includes('full') ||
+                    src.includes('sprite')) return;
+
+                // Aceita mais formatos
+                if (/\.(jpg|jpeg|png|gif|webp)$/i.test(src)) {
+                    resolved.add(src);
+                }
+            });
+
+            return { resolved: [...resolved] };
+        }
+    ],
     [
         [/give.xxx\//],
         async (url, http) => {
@@ -5904,13 +6079,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
     // Early resolve tracing: log parsedHosts and enabledHosts so we can see
     // why JPGX-like hosts produce no resolved resources in some posts.
-    try {
-        // console.log('[XFPD RESOLVE TRACE] parsedHosts summary', {
-        //     postId,
-        //     parsedHosts: (parsedHosts || []).map(ph => ({ name: ph.name, type: ph.type, resources: (ph.resources || []).slice(0, 8), resourceCount: (ph.resources || []).length })),
-        //     enabledHosts: (enabledHosts || []).map(hh => ({ name: hh.name, type: hh.type })),
-        // });
-    } catch (e) { }
+    // try {
+    //     console.log('[XFPD RESOLVE TRACE] parsedHosts summary', {
+    //     //     postId,
+    //     //     parsedHosts: (parsedHosts || []).map(ph => ({ name: ph.name, type: ph.type, resources: (ph.resources || []).slice(0, 8), resourceCount: (ph.resources || []).length })),
+    //     //     enabledHosts: (enabledHosts || []).map(hh => ({ name: hh.name, type: hh.type })),
+    //     // });
+    // } catch (e) { }
 
 
 
@@ -5960,7 +6135,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         }
     } catch (e) { }
 
-    // log.post.info(postId, '::Url resolution started::', postNumber);
+    log.post.info(postId, '::Url resolution started::', postNumber);
 
     for (const host of enabledHosts.filter(host => host.resources.length)) {
         if (xfpdShouldSkipPost(postId)) {
@@ -5986,12 +6161,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 return { paused: true, postId, postNumber };
             }
 
-            try {
-                // console.log('[XFPD RESOLVE-DBG] resource dump', { postId, host: host && host.name, resourceType: typeof resource, resourcePreview: (typeof resource === 'string' ? resource.slice(0,200) : (resource && resource.url ? String(resource.url).slice(0,200) : String(resource).slice(0,200))) });
-            } catch (e) { }
+            // console.log('[XFPD RESOLVE-DBG] resource dump', { postId, host: host && host.name, resourceType: typeof resource, resourcePreview: (typeof resource === 'string' ? resource.slice(0, 200) : (resource && resource.url ? String(resource.url).slice(0, 200) : String(resource).slice(0, 200))) });
+
 
             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
             h.ui.setText(statusLabel, `Resolving: ${h.limit(resource, 80)}`);
+
+            // console.log('[XFPD DEBUG]', {
+            //     host: host?.name,
+            //     resolversCount: resolvers?.length,
+            //     resource
+            // });
 
             for (const resolver of resolvers) {
                 const patterns = resolver[0];
@@ -6001,9 +6181,12 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 for (const pattern of patterns) {
                     let strPattern = pattern.toString();
-                    // try {
-                    //     console.log('[XFPD RESOLVE-DBG] pattern check', { postId, host: host && host.name, pattern: String(pattern) });
-                    // } catch (e) { }
+
+                    // console.log('[XFPD DEBUG] checking resolver', {
+                    //     host: host?.name,
+                    //     patterns: patterns.map(p => String(p))
+                    // });
+
 
                     let shouldMatch = !h.contains(':!', strPattern);
 
@@ -6017,27 +6200,48 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     //     console.log('[XFPD RESOLVE-DBG] pattern test error', { postId, host: host && host.name, pattern: String(pattern), err: String(e) });
                     // }
 
-                    if (shouldMatch && !strPattern.test(resource)) {
+                    const testResult = strPattern.test(resource);
+
+                    // console.log('[XFPD PATTERN TEST]', {
+                    //     host: host?.name,
+                    //     resource,
+                    //     originalPattern: String(pattern),
+                    //     shouldMatch,
+                    //     finalRegex: String(strPattern),
+                    //     testResult
+                    // });
+
+                    if (shouldMatch && !testResult) {
                         matched = false;
                         break;
-                    } else if (!shouldMatch && strPattern.test(resource)) {
+                    } else if (!shouldMatch && testResult) {
                         matched = false;
                         break;
                     }
                 }
 
                 if (!matched) {
+                    // console.log("Host não encontrado para recurso, pulando resolver", {
+                    //     postId,
+                    //     resource
+                    // });
                     continue;
                 }
+
+
+                // console.log('[XFPD MATCHED RESOLVER]', {
+                //     host: host?.name,
+                //     resource,
+                //     patterns: patterns.map(p => String(p))
+                // });
 
                 const passwords = parsedPost.spoilers.concat(parsedPost.spoilers.map(s => s.toLowerCase()));
 
                 let r = null;
 
                 try {
-                    // try {
-                    //     console.log('[XFPD RESOLVER TRACE] invoking resolver', { postId, resource, host: host && host.name, patterns: patterns.map(p => String(p)) });
-                    // } catch (e) { }
+                    // console.log('[XFPD RESOLVER TRACE] invoking resolver', { postId, resource, host: host && host.name, patterns: patterns.map(p => String(p)) });
+
                     const progressCB = (t) => {
                         try {
                             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
@@ -6046,24 +6250,43 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     };
 
                     r = await h.promise(resolve => resolve(resolverCB(resource, h.http, passwords, postId, postSettings, progressCB)));
-                    try {
-                        // console.log('[XFPD RESOLVER TRACE] resolver result', { postId, resource, host: host && host.name, r: (typeof r === 'string' || typeof r === 'number') ? String(r).slice(0,200) : (Array.isArray(r.resolved) ? `array(${r.resolved.length})` : (r && r.url ? String(r.url).slice(0,200) : '[object]')) });
-                    } catch (e) { }
+
+                    // console.log('[XFPD RESOLVER RESULT]', {
+                    //     postId,
+                    //     host: host && host.name,
+                    //     resource,
+                    //     resultType: typeof r,
+                    //     result: r
+                    // });
+
+
                 } catch (e) {
                     if (host.name === 'Cyberdrop' && /cyberdrop\.[a-z]{2,}\/a\//i.test(String(resource))) {
                         continue;
                     }
-                    // log.post.error(postId, `::Error resolving::: ${resource}`, postNumber);
+                    log.post.error(postId, `::Error resolving::: ${resource}`, postNumber);
                     continue;
                 }
 
                 if (h.isNullOrUndef(r)) {
-                    // log.post.error(postId, `::Could not resolve::: ${resource}`, postNumber);
+                    console.error('[XFPD NULL RESULT]', {
+                        postId,
+                        host: host && host.name,
+                        resource
+                    });
+
+                    log.post.error(
+                        postId,
+                        `::Could not resolve::: ${resource}`,
+                        postNumber
+                    );
+
                     continue;
                 }
 
                 h.ui.setElProps(statusLabel, { color: '#47ba24', fontWeight: 'bold' });
                 h.ui.setText(statusLabel, `Resolved: ${resolved.length}`);
+
 
                 const addResolved = (url, folderName) => {
                     if (!resolved.length) {
@@ -6092,6 +6315,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         log.post.info(postId, `::Resolved::: ${url}`, postNumber);
                     }
                 };
+
+                // console.log('[XFPD ADD RESOLVED]', {
+                //     postId,
+                //     host: host && host.name,
+                //     resource,
+                //     resolved: r
+                // });
 
                 if (h.isArray(r.resolved)) {
                     r.resolved.forEach(url => {
@@ -6173,7 +6403,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         resolved = filtered;
     } catch (e) { }
 
-    // log.post.info(postId, '::Url resolution completed::', postNumber);
+    log.post.info(postId, '::Url resolution completed::', postNumber);
 
     let totalDownloadable = resolved.filter(r => r.url).length;
 
@@ -6775,7 +7005,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             // Unzipped: if there is ANY non-image (mixed or video-only) -> DIRECT all.
                             if (hasNonImage) {
                                 for (const it of items) it.forceDirect = true;
-                                // log.post.info(postId, `::Filester album (unzipped) has non-image -> DIRECT all (${info})::: ${albumUrl}`, postNumber);
+                                log.post.info(postId, `::Filester album (unzipped) has non-image -> DIRECT all (${info})::: ${albumUrl}`, postNumber);
                             }
                             continue;
                         }
@@ -6788,9 +7018,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     const kind = filesterClassify(it.url);
                                     if (kind !== 'image') it.forceDirect = true;
                                 }
-                                // log.post.info(postId, `::Filester mixed album -> ZIP images, DIRECT others (${info})::: ${albumUrl}`, postNumber);
+                                log.post.info(postId, `::Filester mixed album -> ZIP images, DIRECT others (${info})::: ${albumUrl}`, postNumber);
                             } else {
-                                // log.post.info(postId, `::Filester mixed album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`, postNumber);
+                                log.post.info(postId, `::Filester mixed album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`, postNumber);
                             }
                         } else if (!hasImage && hasNonImage) {
                             // Non-image only (videos and/or other file types)
@@ -6798,17 +7028,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                             if (!canZipAll) {
                                 for (const it of items) it.forceDirect = true;
-                                // log.post.info(
-                                //     postId,
-                                //     `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album >~1.6GB or unknown -> DIRECT all (${info})::: ${albumUrl}`,
-                                //     postNumber
-                                // );
+                                log.post.info(
+                                    postId,
+                                    `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album >~1.6GB or unknown -> DIRECT all (${info})::: ${albumUrl}`,
+                                    postNumber
+                                );
                             } else {
-                                // log.post.info(
-                                //     postId,
-                                //     `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`,
-                                //     postNumber
-                                // );
+                                log.post.info(
+                                    postId,
+                                    `::Filester ${isVideoOnly ? 'video-only' : 'non-image'} album total<=~1.6GB -> ZIP all (${info})::: ${albumUrl}`,
+                                    postNumber
+                                );
                             }
                         }
                         // Images-only album: keep default behavior.
@@ -6905,7 +7135,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     } catch (e) { }
                                     if (!filesterNoTabTokenLogged) {
                                         filesterNoTabTokenLogged = true;
-                                        // log.post.info(postId, `::Filester slug->token->cache (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
+                                        log.post.info(postId, `::Filester slug->token->cache (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
                                     }
 
                                     try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) { }
@@ -6972,7 +7202,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 try {
                     const isJpgxLike = /simp\d+\.cuckcapital\.cr|jpg6\.su|jpg\d\.(su|cr)/i.test(String(url || '')) || (host && host.name && /JPGX/i.test(String(host.name)));
                     if (isJpgxLike) {
-                        // console.log('[XFPD IMG TRACE] startDownload entry', { postId, url, original, host: host && host.name, folderName, isTurbo });
+                        console.log('[XFPD IMG TRACE] startDownload entry', { postId, url, original, host: host && host.name, folderName, isTurbo });
                         log.post.info(postId, `::IMG TRACE startDownload::: ${url}`, postNumber);
                     }
                 } catch (e) { }
@@ -6981,7 +7211,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|selti-delivery\.ru/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
 
                     cyberdropDirectWarmupDone = true;
-                    // log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
+                    log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
                     await cyberdropWarmupOnce(cyberOrigin, cyberFilePage, CYBERDROP_WARMUP_MS);
                 }
 
@@ -7020,7 +7250,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             const isHtml = /text\/html|application\/xhtml\+xml/i.test(ct);
                             if ((badStatus || isHtml) && pass === 1 && !gofileWarmupAttempted.has(url)) {
                                 gofileWarmupAttempted.add(url);
-                                // log.post.info(postId, `::GoFile warm-up -> open tab (${GOFILE_WARMUP_MS}ms) then retry [1/2]::: ${url}`, postNumber);
+                                log.post.info(postId, `::GoFile warm-up -> open tab (${GOFILE_WARMUP_MS}ms) then retry [1/2]::: ${url}`, postNumber);
                                 gofileWarmupOpenTab(url);
                                 setTimeout(() => startDownload(resource, 2), GOFILE_WARMUP_MS);
                                 return;
@@ -7028,7 +7258,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         }
 
                         if (postSettings.zipped) {
-                            // log.post.info(postId, `::Zipped ON -> saving standalone (not in ZIP)::: ${url}`, postNumber);
+                            log.post.info(postId, `::Zipped ON -> saving standalone (not in ZIP)::: ${url}`, postNumber);
                         }
 
                         // Try to reuse the existing GoFile filename hints, if available.
@@ -7227,15 +7457,15 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         const blob = r.response;
                                         const blobSize = blob && blob.size ? blob.size : 0;
 
-                                        // console.log('[Pixeldrain list ZIP debug]', {
-                                        //     url,
-                                        //     status: r.status,
-                                        //     finalUrl: r.finalUrl || r.responseURL || '',
-                                        //     contentType: ct,
-                                        //     contentLength: cl,
-                                        //     blobSize,
-                                        //     headers: r.responseHeaders || '',
-                                        // });
+                                        console.log('[Pixeldrain list ZIP debug]', {
+                                            url,
+                                            status: r.status,
+                                            finalUrl: r.finalUrl || r.responseURL || '',
+                                            contentType: ct,
+                                            contentLength: cl,
+                                            blobSize,
+                                            headers: r.responseHeaders || '',
+                                        });
 
                                         if (!(r.status >= 200 && r.status < 300) || !blob || !blobSize) {
                                             log.post.error(postId, `::Pixeldrain list ZIP blob fetch failed (status=${r.status}, ct=${ct}, size=${blobSize})::: ${url}`, postNumber);
@@ -7260,11 +7490,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
                                             return;
                                         } catch (e) {
-                                            // console.log('[Pixeldrain list ZIP debug] saveAs failed, trying GM_download(blob:)', e);
+                                            console.log('[Pixeldrain list ZIP debug] saveAs failed, trying GM_download(blob:)', e);
                                         }
 
                                         const blobUrl = URL.createObjectURL(blob);
-                                            // try { console.log('[XFPD IMG TRACE] blob created for', url, { blobSize }); } catch (e) { }
+                                        // try { console.log('[XFPD IMG TRACE] blob created for', url, { blobSize }); } catch (e) { }
                                         GM_download({
                                             url: blobUrl,
                                             name: saveAsName,
@@ -7369,10 +7599,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         filesterDirectPreflightDone = true;
 
                                         const st0 = Number(pre && pre.status || 0) || 0;
-                                        // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         const finalUrl = pre && (pre.finalUrl || pre.responseURL) ? String(pre.finalUrl || pre.responseURL) : '';
                                         const ok = st0 && st0 < 400;
-                                        // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         if (ok) {
                                             directUrl = (finalUrl && /^https?:\/\//i.test(finalUrl)) ? finalUrl : String(cand);
 
@@ -7520,9 +7750,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             resolve(null);
                                         }
                                     });
-                                    // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                    console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                     const finalUrl = pre && (pre.finalUrl || pre.responseURL);
-                                    // console.log("FINAL DOWNLOAD URL:", dlOpts.url);
+                                    console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                     if (finalUrl && typeof finalUrl === 'string' && /^https?:\/\//i.test(finalUrl)) {
                                         dlOpts.url = finalUrl;
                                     }
@@ -8228,11 +8458,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     clearTimeout(safetyTimer);
                                     // not_whitelisted or other GM_download error - fall back to saveAs
                                     try { URL.revokeObjectURL(blobUrl); } catch (e) { }
-                                    // console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
-                                    // console.log(response);
+                                    console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
+                                    console.log(response);
                                     // saveAs can't create subfolders, so use flat name with thread title
                                     try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
-                                        // console.log('saveAs fallback also failed:', e);
+                                        console.log('saveAs fallback also failed:', e);
                                     }
                                     gmDlResolve(false);
                                 },
@@ -8328,7 +8558,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 return;
                             }
 
-                            // log.post.error(postId, `::Turbo failed (stalled after retries)::: ${url}`, postNumber);
+                            log.post.error(postId, `::Turbo failed (stalled after retries)::: ${url}`, postNumber);
 
                             if (completed < totalDownloadable) {
                                 completed++;
@@ -8415,8 +8645,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 const elapsed = Date.now() - batchStartTime;
                 if (elapsed > BATCH_MAX_TIME_MS) {
-                    // log.post.error(postId, `::BATCH TIMEOUT (30min) - forçando continuação (post #${postNumber})::`, postNumber);
-                    // console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout 30min`);
+                    log.post.error(postId, `::BATCH TIMEOUT (30min) - forçando continuação (post #${postNumber})::`, postNumber);
+                    console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout 30min`);
                     break;
                 }
 
@@ -8425,7 +8655,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 // }
             }
 
-            // log.post.info(postId, `::Batch finalizado (${completedBatchedDownloads}/${batch.length}) - continuando...::`, postNumber);
+            log.post.info(postId, `::Batch finalizado (${completedBatchedDownloads}/${batch.length}) - continuando...::`, postNumber);
 
             if (completedBatchedDownloads >= batch.length) {
                 completedBatchedDownloads = 0;
@@ -8495,8 +8725,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             try {
                 blob = await zip.generateAsync({ type: 'blob' });
             } catch (e) {
-                // console.log('JSZip failed to construct the Blob. For very large albums, try unzipped mode.');
-                // console.log(e);
+                console.log('JSZip failed to construct the Blob. For very large albums, try unzipped mode.');
+                console.log(e);
                 blob = null;
             }
 
@@ -8517,11 +8747,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 },
                                 onerror: response => {
                                     try { URL.revokeObjectURL(url); } catch (e) { }
-                                    // console.log(`Error writing file to disk. There may be more details below.`);
-                                    // console.log(response);
-                                    // console.log('Trying to write using FileSaver...');
+                                    console.log(`Error writing file to disk. There may be more details below.`);
+                                    console.log(response);
+                                    console.log('Trying to write using FileSaver...');
                                     try { saveAs(blob, mainZipName); } catch (e) { }
-                                    // console.log('Done!');
+                                    console.log('Done!');
                                     resolve();
                                 },
                             });
@@ -8544,8 +8774,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     },
                                     onerror: response => {
                                         try { URL.revokeObjectURL(url); } catch (e) { }
-                                        // console.log(`Error writing generated.zip to disk. There may be more details below.`);
-                                        // console.log(response);
+                                        console.log(`Error writing generated.zip to disk. There may be more details below.`);
+                                        console.log(response);
                                         blob = null;
                                         resolve();
                                     },
@@ -9665,7 +9895,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                     if (!postElements.length) {
                         console.log(`No posts found on page ${page}`);
-                        // console.log(`Source snippet: ${String(source || '').slice(0, 500)}`);
+                        console.log(`Source snippet: ${String(source || '').slice(0, 500)}`);
                         continue;
                     }
                 }
@@ -9685,10 +9915,23 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                     try {
                         const parsedPost = parsers.thread.parsePost(postEl);
+                        //                         console.log(
+                        //     '[POST HTML]',
+                        //     postEl.innerHTML.slice(0, 3000)
+                        // );
                         if (!parsedPost) continue;
 
                         const parsedHosts = parsers.hosts.parseHosts(parsedPost.content);
-                        if (!parsedHosts.length) continue;
+
+                        if (!parsedHosts.length) {
+                            // console.log(
+                            //     `[NO HOSTS] Post #${parsedPost.postNumber} (${parsedPost.postId})`
+                            // ); console.log(
+                            //     `POST ${parsedPost.postNumber}`
+                            // parsedPost.content.substring(0, 500)
+                            // );
+                            continue;
+                        }
 
 
                         const postId = String(parsedPost.postId || '').trim();
@@ -9738,7 +9981,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
         allPostData.sort((a, b) => b.timestamp - a.timestamp);
 
-        // console.log(`Total collected: ${allPostData.length} posts with valid hosts. Starting downloads (most recent → oldest)`);
+        console.log(`Total collected: ${allPostData.length} posts with valid hosts. Starting downloads (most recent → oldest)`);
 
         let totalProcessed = 0;
 
@@ -9773,8 +10016,8 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                 xfpdSetActiveWatchedPost(parsedPost.postId, parsedPost.postNumber);
 
-                // console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
-                // log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
+                console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
+                log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
 
                 try {
                     while (true) {
@@ -9804,15 +10047,15 @@ async function processThreadFromHTML(url, filterType = 'date') {
                     continue;
                 }
 
-                // console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
+                console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
                 totalProcessed++;
             } catch (err) {
-                // console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
-                // log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
+                console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
+                log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
             }
         }
 
-        // console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
+        console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
         return {
             ok: true,
             blocked: false,
@@ -9821,7 +10064,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
             baseUrl,
         };
     } catch (fatalErr) {
-        // console.error('Erro fatal na thread', url, fatalErr);
+        console.error('Erro fatal na thread', url, fatalErr);
         return {
             ok: false,
             blocked: false,
@@ -9860,7 +10103,7 @@ async function downloadAllPagesOfCurrentThread() {
     const threadUrl = location.href.replace(/\/page-\d+/, '').split('#')[0];
     console.log(`Iniciando download de todas as páginas da thread: ${threadUrl}`);
     await processThreadFromHTML(threadUrl);
-    // console.log('Thread finalizada');
+    console.log('Thread finalizada');
 }
 
 
@@ -10377,5 +10620,6 @@ let skipCurrentThread = false;
                         });
                 },
             });
-    }});
+        }
+    });
 })();
