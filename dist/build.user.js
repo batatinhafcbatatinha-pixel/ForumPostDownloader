@@ -3139,114 +3139,129 @@ const resolvers = [
         }
     ],
     [
-        [
-            /smgmedia\.socialmediagirls\.com\/forum\//i,
-            /forums\.socialmediagirls\.com/i
-        ], async (url, http) => {
+        [/smgmedia\.socialmediagirls\.com/i],
+        async url => ({
+            resolved: url.includes('/thumb/') ? [] : [url]
+        })
+    ],
+     [
+        [/(youtube\.com\/watch|youtu\.be\/)/i],
+        async (url, http) => {
+            console.log("entrou youtube", url);
             const { dom } = await http.get(url);
             const resolved = new Set();
 
-            // 1. PRIORIDADE MÁXIMA: Links diretos dos attachments (melhor qualidade)
-            dom.querySelectorAll('a.file-preview, .attachmentList a[href*="smgmedia"]')
-                .forEach(el => {
-                    const href = el.getAttribute('href');
-                    if (href && /\.(jpg|jpeg|png|gif|webp)$/i.test(href)) {
-                        resolved.add(href);
-                    }
-                });
-
-            // 2. bbImageWrapper (imagens inline)
-            dom.querySelectorAll('div.bbImageWrapper img, div.bbImageWrapper source')
-                .forEach(el => {
-                    const src = el.getAttribute('data-src') ||
-                        el.getAttribute('src') ||
-                        el.getAttribute('data-original');
-                    if (src && src.includes('smgmedia.socialmediagirls.com')) {
-                        resolved.add(src);
-                    }
-                });
-
-            // 3. Todas as imagens com data-src/src do domínio
-            dom.querySelectorAll('img').forEach(el => {
-                const src = el.getAttribute('data-src') ||
-                    el.getAttribute('src') ||
-                    el.getAttribute('data-original');
-
-                if (!src) return;
-                if (!src.includes('smgmedia.socialmediagirls.com')) return;
-
-                // Evita thumbnails
-                if (src.includes('/thumb/') || src.includes('thumb_')) return;
-
-                resolved.add(src);
+            dom.querySelectorAll('video source, video').forEach(el => {
+                const src = el.getAttribute('src');
+                if (src && src.includes('.mp4')) resolved.add(src);
             });
 
-            // 4. Fallback mais amplo (data-url, lazy loading, etc)
-            dom.querySelectorAll('[data-src], [data-url], [data-original]').forEach(el => {
-                const src = el.getAttribute('data-src') ||
-                    el.getAttribute('data-url') ||
-                    el.getAttribute('data-original');
+            return { resolved: [...resolved] };
+        }
+    ],
+     [
+        [/youtube\.com\/watch|youtu\.be\//i],
+        async (url, http) => {
+            console.log("entrou youtube", url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
 
-                if (src && /\.(jpg|jpeg|png|gif|webp)$/i.test(src) &&
-                    src.includes('smgmedia.socialmediagirls.com')) {
-                    resolved.add(src);
-                }
+            dom.querySelectorAll('video source, video').forEach(el => {
+                const src = el.getAttribute('src');
+                if (src && src.includes('.mp4')) resolved.add(src);
             });
 
-            return {
-                resolved: [...resolved]
-            };
+            return { resolved: [...resolved] };
+        }
+    ],
+     [
+        [/ytimg\.com\/vi\//i],
+        async (url, http) => {
+            console.log("entrou youtube", url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+            dom.querySelectorAll('video source, video').forEach(el => {
+                const src = el.getAttribute('src');
+                if (src && src.includes('.mp4')) resolved.add(src);
+            });
+
+            return { resolved: [...resolved] };
         }
     ],
     [
-        [/xvideos\.(com|es|net)\/video/], async (url, http) => {
-        const { dom } = await http.get(url);
-        const resolved = new Set();
-
-        // Procura no script (melhor método atualmente)
-        dom.querySelectorAll('script').forEach(script => {
-            const content = script.textContent || '';
-            const match = content.match(/"(https?:\/\/[^"]+\.xvideos[^"]+\.mp4[^"]*)"/i);
-            if (match) resolved.add(match[1]);
-        });
-
-        // Fallback no player
-        dom.querySelectorAll('video source, video').forEach(el => {
-            const src = el.getAttribute('src');
-            if (src && src.includes('.mp4')) resolved.add(src);
-        });
-
-        return { resolved: [...resolved] };
-    }],
-    [
-        [/pornhub\.com\/view_video\.php/], async (url, http) => {
-        const { dom, text } = await http.get(url);  // pega também o texto bruto
-
-        const resolved = new Set();
-
-        // Procura links diretos no HTML/JS
-        const mp4Match = text.match(/"(https?:\/\/[^"]+\.mp4[^"]*)"/i);
-        if (mp4Match) resolved.add(mp4Match[1]);
-
-        // Links HLS (mais comum)
-        const hlsMatch = text.match(/"(https?:\/\/[^"]+\.m3u8[^"]*)"/i);
-        if (hlsMatch) resolved.add(hlsMatch[1]);
-
-        return { resolved: [...resolved] };
-    }],
-    [
-        [/erome\.com\/a\//i],
+        [/youtube\.com\/embed\//i],
         async (url, http) => {
+            console.log("entrou youtube", url);
             const { dom } = await http.get(url);
             const resolved = new Set();
 
-            // 1. VIDEOS
+            dom.querySelectorAll('video source, video').forEach(el => {
+                const src = el.getAttribute('src');
+                if (src && src.includes('.mp4')) resolved.add(src);
+            });
+
+            return { resolved: [...resolved] };
+        }
+    ],
+    [
+        [/xvideos\.(com|es|net)\/video/, /(www\.)?xvideos\.(com|es|net)\/video/i, /xvideos\.(com|es|net)/i], async (url, http) => {
+            console.log("entrou xvideos", url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+            dom.querySelectorAll('script').forEach(script => {
+                const content = script.textContent || '';
+                const match = content.match(/"(https?:\/\/[^"]+\.xvideos[^"]+\.mp4[^"]*)"/i);
+                if (match) resolved.add(match[1]);
+            });
+
+            dom.querySelectorAll('video source, video').forEach(el => {
+                const src = el.getAttribute('src');
+                if (src && src.includes('.mp4')) resolved.add(src);
+            });
+
+            return { resolved: [...resolved] };
+        }],
+    [
+        [/sendvid\.com\/(embed\/)?[a-z0-9]+/i, /data-url="https:\/\/(?:www\.)?sendvid\.com\/(embed\/)?[a-z0-9]+/i], async (url, http) => {
+            const { dom } = await http.get(url);
+            console.log("entrou sendvid", url);
+
+            const video =
+                dom.querySelector('video source') ||
+                dom.querySelector('video');
+
+            const src = video?.getAttribute('src');
+
+            return {
+                resolved: src ? [src] : []
+            };
+        }
+    ],
+     [
+        [/erome\.com\/a\//i],
+        async (url, http) => {
+            console.log('entrou erome EROME URL', url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+
+            console.log(
+                'VIDEOS',
+                dom.querySelectorAll('video, video source').length
+            );
+
+            console.log(
+                'IMGS',
+                dom.querySelectorAll('img').length
+            );
+
             dom.querySelectorAll('video source, video').forEach(el => {
                 let src = el.getAttribute('src') || el.getAttribute('data-src');
                 if (src?.startsWith('http')) resolved.add(src);
             });
 
-            // 2. IMAGENS (melhorado)
             dom.querySelectorAll('.img[data-src], img[data-src], [data-full], [data-original]').forEach(el => {
                 const src = el.getAttribute('data-src') ||
                     el.getAttribute('data-full') ||
@@ -3255,7 +3270,6 @@ const resolvers = [
                 if (src?.startsWith('http')) resolved.add(src);
             });
 
-            // 3. Fallback mais agressivo (mas limpo)
             dom.querySelectorAll('img').forEach(el => {
                 let src = el.getAttribute('src') || el.getAttribute('data-src');
                 if (!src || !src.startsWith('http')) return;
@@ -3265,7 +3279,150 @@ const resolvers = [
                     src.includes('thumb') && !src.includes('full') ||
                     src.includes('sprite')) return;
 
-                // Aceita mais formatos
+                if (/\.(jpg|jpeg|png|gif|webp)$/i.test(src)) {
+                    resolved.add(src);
+                }
+            });
+
+            return { resolved: [...resolved] };
+        }
+    ],
+    [
+        [/data-url="https:\/\/(?:www\.)?erome\.com\/a\//i],
+        async (url, http) => {
+            console.log('entrou erome EROME URL', url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+
+            console.log(
+                'VIDEOS',
+                dom.querySelectorAll('video, video source').length
+            );
+
+            console.log(
+                'IMGS',
+                dom.querySelectorAll('img').length
+            );
+
+            dom.querySelectorAll('video source, video').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            dom.querySelectorAll('.img[data-src], img[data-src], [data-full], [data-original]').forEach(el => {
+                const src = el.getAttribute('data-src') ||
+                    el.getAttribute('data-full') ||
+                    el.getAttribute('data-original') ||
+                    el.getAttribute('src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            dom.querySelectorAll('img').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (!src || !src.startsWith('http')) return;
+
+                if (src.includes('blur') ||
+                    src.includes('placeholder') ||
+                    src.includes('thumb') && !src.includes('full') ||
+                    src.includes('sprite')) return;
+
+                if (/\.(jpg|jpeg|png|gif|webp)$/i.test(src)) {
+                    resolved.add(src);
+                }
+            });
+
+            return { resolved: [...resolved] };
+        }
+    ],
+     [
+        [/erome\.com\/i\//i],
+        async (url, http) => {
+            console.log('entrou erome EROME URL', url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+
+            console.log(
+                'VIDEOS',
+                dom.querySelectorAll('video, video source').length
+            );
+
+            console.log(
+                'IMGS',
+                dom.querySelectorAll('img').length
+            );
+
+            dom.querySelectorAll('video source, video').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            dom.querySelectorAll('.img[data-src], img[data-src], [data-full], [data-original]').forEach(el => {
+                const src = el.getAttribute('data-src') ||
+                    el.getAttribute('data-full') ||
+                    el.getAttribute('data-original') ||
+                    el.getAttribute('src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            dom.querySelectorAll('img').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (!src || !src.startsWith('http')) return;
+
+                if (src.includes('blur') ||
+                    src.includes('placeholder') ||
+                    src.includes('thumb') && !src.includes('full') ||
+                    src.includes('sprite')) return;
+
+                if (/\.(jpg|jpeg|png|gif|webp)$/i.test(src)) {
+                    resolved.add(src);
+                }
+            });
+
+            return { resolved: [...resolved] };
+        }
+    ],
+     [
+        [/data-url="https:\/\/(?:www\.)?erome\.com\/i\//i],
+        async (url, http) => {
+            console.log('entrou erome EROME URL', url);
+            const { dom } = await http.get(url);
+            const resolved = new Set();
+
+
+            console.log(
+                'VIDEOS',
+                dom.querySelectorAll('video, video source').length
+            );
+
+            console.log(
+                'IMGS',
+                dom.querySelectorAll('img').length
+            );
+
+            dom.querySelectorAll('video source, video').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            dom.querySelectorAll('.img[data-src], img[data-src], [data-full], [data-original]').forEach(el => {
+                const src = el.getAttribute('data-src') ||
+                    el.getAttribute('data-full') ||
+                    el.getAttribute('data-original') ||
+                    el.getAttribute('src');
+                if (src?.startsWith('http')) resolved.add(src);
+            });
+
+            dom.querySelectorAll('img').forEach(el => {
+                let src = el.getAttribute('src') || el.getAttribute('data-src');
+                if (!src || !src.startsWith('http')) return;
+
+                if (src.includes('blur') ||
+                    src.includes('placeholder') ||
+                    src.includes('thumb') && !src.includes('full') ||
+                    src.includes('sprite')) return;
+
                 if (/\.(jpg|jpeg|png|gif|webp)$/i.test(src)) {
                     resolved.add(src);
                 }
@@ -3363,7 +3520,7 @@ const resolvers = [
         },
     ],
     [
-        [/([~an@]+\.)?pornhub.com\/view_video/],
+        [/([~an@]+\.)?pornhub.com\/view_video/, /pornhub\.com\/view_video\.php/],
         async (url, http) => {
             url = url.replace(/([a-zA-Z0-9]+\.)?pornhub/, 'pornhub');
 
@@ -3385,6 +3542,12 @@ const resolvers = [
                             flashVars: s,
                         };
                     })[0];
+
+
+                if (!script) {
+                    console.log('PH: script não encontrado', url);
+                    return null;
+                }
 
                 const { mediaVars, flashVars } = script;
 
@@ -4896,6 +5059,7 @@ const resolvers = [
             if (!url.startsWith('/')) url = '/' + url;
 
             const isSMG = window.location.hostname.includes('socialmediagirls');
+            console.log("é smg");
             if (url.startsWith('/attachments/') || url.startsWith('/data/video/')) {
                 return isSMG ? `https://forums.socialmediagirls.com${url}` : `https://simpcity.su${url}`;
             }
@@ -6136,6 +6300,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     } catch (e) { }
 
     log.post.info(postId, '::Url resolution started::', postNumber);
+    // console.log(host?.name);
 
     for (const host of enabledHosts.filter(host => host.resources.length)) {
         if (xfpdShouldSkipPost(postId)) {
@@ -6172,12 +6337,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             //     resolversCount: resolvers?.length,
             //     resource
             // });
-
+            let matchedAnyResolver = false;
             for (const resolver of resolvers) {
                 const patterns = resolver[0];
                 const resolverCB = resolver[1];
 
                 let matched = true;
+
+                //     console.log('[RESOURCE]', {
+                //     host: host.name,
+                //     resource
+                // });
 
                 for (const pattern of patterns) {
                     let strPattern = pattern.toString();
@@ -6226,6 +6396,12 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     //     resource
                     // });
                     continue;
+                }
+                matchedAnyResolver = true;
+
+
+                if (!matchedAnyResolver) {
+                    console.log('[NO RESOLVER MATCH]', resource);
                 }
 
 
