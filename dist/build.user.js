@@ -4,7 +4,7 @@
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
-// @version 3.18
+// @version 3.20
 // (custom build) updateURL/downloadURL removed to avoid overwriting custom changes
 // @icon https://simp4.cuckcapital.cr/simpcityIcon192.png
 // @license WTFPL; http://www.wtfpl.net/txt/copying/
@@ -12,7 +12,6 @@
 // @match https://simpcity.is/threads/*
 // @match https://simpcity.cz/threads/*
 // @match https://simpcity.hk/threads/*
-// @match https://simpcity.rs/threads/*
 // @match https://simpcity.ax/threads/*
 // @match https://simpcity.cr/watched/threads*
 // @match https://forums.socialmediagirls.com/threads/*
@@ -57,6 +56,10 @@
 // @connect bunkr.ws
 // @connect bunkrr.ru
 // @connect bunkrr.su
+// @connect apidl.bunkr.ru
+// @connect get.bunkrr.su
+// @connect cdn.cr
+// @connect glb-apisign.cdn.cr
 // @connect bunkrrr.org
 // @connect bunkr-cache.se
 // @connect b-cdn.net
@@ -115,6 +118,7 @@
 // @connect phncdn.com
 // @connect xvideos.com
 // @connect give.xxx
+// @connect goonbox.cr
 // @connect githubusercontent.com
 // @connect filester.me
 // @connect filester.sh
@@ -708,18 +712,17 @@ async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, orig
             lastStatus = 0;
         }
 
-
-
         // Fast-fail on 403 / CF interstitial for non-last domains:
         // Immediately blacklist this domain and return null so the caller tries the next domain.
         if (BUNKR_FASTFAIL_ON_403 && (Number(lastStatus || 0) === 403) && !allowWarmup) {
             xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-            const status = Number(last?.status || 0);
+            return null;
         }
         if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && xfpdLooksLikeCfChallenge(lastText, null)) {
             xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
             return null;
         }
+
         try {
             return JSON.parse(lastText || '{}');
         } catch (e) {
@@ -737,36 +740,49 @@ async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, orig
     return null;
 }
 
+// Sign a bunkr cdn.cr URL via glb-apisign.cdn.cr - required for download (unsigned URLs return 403).
+async function xfpdBunkrSignCdnUrl(http, rawUrl) {
+    try {
+        const urlObj = new URL(rawUrl);
+        const path = decodeURIComponent(urlObj.pathname);
+        const signRes = await http.get(
+            `https://glb-apisign.cdn.cr/sign?path=${encodeURIComponent(path)}`
+        );
+        const signText = String(signRes?.source || '');
+        const signData = JSON.parse(signText);
+        if (signData?.token && signData?.ex) {
+            urlObj.searchParams.set('token', String(signData.token));
+            urlObj.searchParams.set('ex', String(signData.ex));
+            return urlObj.toString();
+        }
+    } catch (e) { }
+    return rawUrl;
+}
 
+    // Turbo mapping: signed turbocdn URL -> Turbo id (needed for re-sign when resolving from /a/ albums)
+    const turboIdBySignedUrl = new Map();
 
-
-
-
-
-// Turbo mapping: signed turbocdn URL -> Turbo id (needed for re-sign when resolving from /a/ albums)
-const turboIdBySignedUrl = new Map();
-
-const h = {
-    /**
-   * @param v
-   * @returns {arg is any[]}
-   */
-    isArray: v => Array.isArray(v),
-    /**
-   * @param v
-   * @returns {boolean}
-   */
-    isObject: v => typeof v === 'object',
-    /**
-   * @param v
-   * @returns {boolean}
-   */
-    isNullOrUndef: v => v === null || v === undefined || typeof v === 'undefined',
-    /**
-   * @param path
-   * @returns {unknown}
-   */
-    basename: path =>
+    const h = {
+        /**
+       * @param v
+       * @returns {arg is any[]}
+       */
+        isArray: v => Array.isArray(v),
+        /**
+       * @param v
+       * @returns {boolean}
+       */
+        isObject: v => typeof v === 'object',
+        /**
+       * @param v
+       * @returns {boolean}
+       */
+        isNullOrUndef: v => v === null || v === undefined || typeof v === 'undefined',
+        /**
+       * @param path
+       * @returns {unknown}
+       */
+        basename: path =>
         path
             .replace(/\/(\s+)?$/, '')
             .split('/')
@@ -1245,6 +1261,11 @@ const parsers = {
             // For parsing only, remove the preview <img> inside attachment links so we don't count/download it twice.
             try {
                 messageContentClone.querySelectorAll('a[href*="/attachments/"] img').forEach((img) => img.remove());
+            } catch (e) { /* ignore */ }
+
+            // Goonbox links wrap a medium-res CDN thumbnail - suppress it so we call the API for the original instead.
+            try {
+                messageContentClone.querySelectorAll('a[href*="goonbox.cr"] img').forEach((img) => img.remove());
             } catch (e) { /* ignore */ }
 
 
@@ -2885,6 +2906,7 @@ const resolvers = [
                         if (!finalUrl || typeof finalUrl !== 'string') return null;
                         finalUrl = finalUrl.trim();
                         if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
+                        finalUrl = await xfpdBunkrSignCdnUrl(http, finalUrl);
 
                         // Attach filename hint to the final URL too (so later download naming can pick it up).
                         try {
@@ -10584,7 +10606,7 @@ let skipCurrentThread = false;
 
         postContainers.forEach(post => {
             const settings = {
-                zipped: true,
+                zipped: false,
                 flatten: false,
                 generateLinks: false,
                 generateLog: false,
