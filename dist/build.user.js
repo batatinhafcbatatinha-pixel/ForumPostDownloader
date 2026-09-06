@@ -6730,14 +6730,17 @@ function xfpdServerNamesForResource(resource) {
     return [...names];
 }
 
-async function xfpdCheckWatchedResources(resources, filterType) {
+async function xfpdCheckWatchedResources(resources, filterType, threadTitle = '') {
     if (!xfpdWatchedServerState.enabled || !resources.length) return { existingIndexes: new Set(), checked: 0, ok: !!xfpdWatchedServerState.enabled };
     const items = resources.map((resource, index) => ({
         index,
         id: `${resource.original || ''}|${resource.url || ''}`,
         names: xfpdServerNamesForResource(resource),
     }));
-    const response = await xfpdServerRequest('POST', `${xfpdWatchedServerState.baseUrl}/check`, { items });
+    const response = await xfpdServerRequest('POST', `${xfpdWatchedServerState.baseUrl}/check`, {
+        threadName: String(threadTitle || '').trim(),
+        items,
+    });
     if (!response.ok || !Array.isArray(response.data?.items)) return { existingIndexes: new Set(), checked: 0, ok: false };
     return {
         existingIndexes: new Set(response.data.items.filter(item => item.exists).map(item => Number(item.index))),
@@ -6746,9 +6749,10 @@ async function xfpdCheckWatchedResources(resources, filterType) {
     };
 }
 
-async function xfpdRegisterWatchedResources(resources) {
+async function xfpdRegisterWatchedResources(resources, threadTitle = '') {
     if (!xfpdWatchedServerState.enabled || !resources.length) return;
     await xfpdServerRequest('POST', `${xfpdWatchedServerState.baseUrl}/register`, {
+        threadName: String(threadTitle || '').trim(),
         items: resources.map(resource => ({
             id: `${resource.original || ''}|${resource.url || ''}`,
             names: xfpdServerNamesForResource(resource),
@@ -6832,6 +6836,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     const zip = new JSZip();
     let zipFileCount = 0;
     let resolved = [];
+    let watchedResourcesToRegister = [];
     let abortCurrentBatch = () => { };
 
     const statusLabel = statusUI.status;
@@ -7233,15 +7238,22 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         const candidates = resolved.filter(resource => resource?.url);
         const remaining = Math.max(0, 20 - xfpdWatchedExistingRecentCount);
         const resourcesToCheck = xfpdWatchedServerFilter === 'date' ? candidates.slice(0, remaining) : candidates;
-        const serverCheck = await xfpdCheckWatchedResources(resourcesToCheck, xfpdWatchedServerFilter);
+        const serverCheck = await xfpdCheckWatchedResources(
+            resourcesToCheck,
+            xfpdWatchedServerFilter,
+            overrideThreadTitle || parsers.thread.parseTitle(),
+        );
 
         if (!serverCheck.ok) {
-            log.post.error(postId, '::Watched duplicate check failed; stopping before download::', postNumber);
-            setProcessing(false, postId);
-            return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
+            log.post.error(postId, '::Watched duplicate check failed; continuing without duplicate filtering::', postNumber);
+        } else {
+            const checkedResources = new Set(resourcesToCheck);
+            watchedResourcesToRegister = candidates.filter(resource =>
+                checkedResources.has(resource) && !serverCheck.existingIndexes.has(resourcesToCheck.indexOf(resource)),
+            );
         }
 
-        if (xfpdWatchedServerFilter === 'date') {
+        if (serverCheck.ok && xfpdWatchedServerFilter === 'date') {
             xfpdWatchedExistingRecentCount += serverCheck.existingIndexes.size;
 
             if (serverCheck.existingIndexes.size) {
@@ -7255,16 +7267,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 setProcessing(false, postId);
                 return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
             }
-        } else if (serverCheck.existingIndexes.size) {
+        } else if (serverCheck.ok && serverCheck.existingIndexes.size) {
             const existing = new Set([...serverCheck.existingIndexes].map(index => resourcesToCheck[index]));
             resolved = resolved.filter(resource => !existing.has(resource));
             log.post.info(postId, `::Watched reaction score: skipped ${existing.size} existing media::`, postNumber);
         }
 
-        const checkedResources = new Set(resourcesToCheck);
-        await xfpdRegisterWatchedResources(candidates.filter(resource => checkedResources.has(resource) && !serverCheck.existingIndexes.has(resourcesToCheck.indexOf(resource))));
-
-        if (xfpdWatchedServerFilter === 'date' && xfpdWatchedExistingRecentCount >= 20) {
+        if (serverCheck.ok && xfpdWatchedServerFilter === 'date' && xfpdWatchedExistingRecentCount >= 20) {
             log.post.info(postId, '::Watched date: duplicate limit reached after server check::', postNumber);
             setProcessing(false, postId);
             return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
@@ -9682,6 +9691,15 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             }
         }
 
+    }
+
+    // Register only after this post had a chance to download its resources.
+    // Registering immediately after /check makes files look existing before they exist.
+    if (watchedResourcesToRegister.length && !postSettings.skipDownload && completed > 0) {
+        await xfpdRegisterWatchedResources(
+            watchedResourcesToRegister,
+            overrideThreadTitle || parsers.thread.parseTitle(),
+        );
     }
 
     setProcessing(false, postId);
