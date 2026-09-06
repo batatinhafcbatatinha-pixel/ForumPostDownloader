@@ -4,7 +4,7 @@
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
-// @version 3.18
+// @version 3.22-custom
 // (custom build) updateURL/downloadURL removed to avoid overwriting custom changes
 // @icon https://simp4.cuckcapital.cr/simpcityIcon192.png
 // @license WTFPL; http://www.wtfpl.net/txt/copying/
@@ -15,6 +15,9 @@
 // @match https://simpcity.rs/threads/*
 // @match https://simpcity.ax/threads/*
 // @match https://simpcity.cr/watched/threads*
+// @match https://goonbox.cr/*
+// @match https://*.goonbox.cr/*
+// @match https://gofile.io/*
 // @match https://forums.socialmediagirls.com/threads/*
 // @match https://forums.socialmediagirls.com/watched/threads*
 // @require https://unpkg.com/@popperjs/core@2
@@ -59,6 +62,8 @@
 // @connect bunkrr.su
 // @connect bunkrrr.org
 // @connect bunkr-cache.se
+// @connect cdn.cr
+// @connect glb-apisign.cdn.cr
 // @connect b-cdn.net
 // @connect gigachad-cdn.ru
 // @connect cyberdrop.me
@@ -129,6 +134,8 @@
 // @grant GM_download
 // @grant GM_setValue
 // @grant GM_getValue
+// @grant GM_cookie
+// @grant GM_addValueChangeListener
 // @grant GM_log
 // @grant GM_openInTab
 
@@ -160,6 +167,7 @@ const http = window.GM_xmlhttpRequest;
 window.isFF = typeof InstallTrigger !== 'undefined';
 window.logs = [];
 window.xfpdDebugLastScan = null;
+const xfpdVersion = '3.22-custom-merge';
 
 const XFPD_MAX_LOG_ENTRIES = 2500;
 const XFPD_RUNTIME_CACHE_LIMITS = {
@@ -383,6 +391,141 @@ const settings = {
 const gofileNameById = new Map();
 const gofileNameByUrl = new Map();
 
+let gofileCookieCaptured = false;
+let gofileOriginalCookieValue = null;
+
+const gofileCaptureOriginalCookie = () => new Promise(resolve => {
+    if (gofileCookieCaptured || typeof GM_cookie === 'undefined' || !GM_cookie || typeof GM_cookie.list !== 'function') {
+        resolve();
+        return;
+    }
+    try {
+        GM_cookie.list({ url: 'https://gofile.io/', domain: 'gofile.io', name: 'accountToken' }, (cookies, error) => {
+            if (!error) {
+                const existing = Array.isArray(cookies) ? cookies.find(cookie => cookie?.name === 'accountToken') : null;
+                gofileOriginalCookieValue = existing ? existing.value : null;
+            }
+            gofileCookieCaptured = true;
+            resolve();
+        });
+    } catch (e) {
+        gofileCookieCaptured = true;
+        resolve();
+    }
+});
+
+const gofileSyncCookie = token => new Promise(resolve => {
+    (async () => {
+        try {
+            if (!token || typeof GM_cookie === 'undefined' || !GM_cookie || typeof GM_cookie.set !== 'function') {
+                resolve(false);
+                return;
+            }
+            await gofileCaptureOriginalCookie();
+            GM_cookie.set({
+                url: 'https://gofile.io/',
+                name: 'accountToken',
+                value: String(token),
+                domain: 'gofile.io',
+                path: '/',
+                secure: true,
+                sameSite: 'lax',
+            }, error => resolve(!error));
+        } catch (e) {
+            resolve(false);
+        }
+    })();
+});
+
+const gofileRestoreCookie = () => new Promise(resolve => {
+    try {
+        if (!gofileCookieCaptured || typeof GM_cookie === 'undefined' || !GM_cookie) {
+            resolve();
+            return;
+        }
+        const originalValue = gofileOriginalCookieValue;
+        gofileCookieCaptured = false;
+        gofileOriginalCookieValue = null;
+        if (originalValue === null && typeof GM_cookie.delete === 'function') {
+            GM_cookie.delete({ url: 'https://gofile.io/', name: 'accountToken', domain: 'gofile.io', path: '/' }, () => resolve());
+            return;
+        }
+        if (originalValue === null) {
+            resolve();
+            return;
+        }
+        GM_cookie.set({
+            url: 'https://gofile.io/',
+            name: 'accountToken',
+            value: originalValue,
+            domain: 'gofile.io',
+            path: '/',
+            secure: true,
+            sameSite: 'lax',
+        }, () => resolve());
+    } catch (e) {
+        resolve();
+    }
+});
+
+const FILESTER_API_TIMEOUT_MS = 20000;
+const FILESTER_PROBE_TIMEOUT_MS = 8000;
+const FILESTER_STREAM_HOSTS = [
+    'https://fsc1.cdn.cr',
+    'https://fsc2.cdn.cr',
+    'https://fsc3.cdn.cr',
+    'https://cache2.filester.me',
+    'https://cache3.filester.me',
+    'https://cache4.filester.me',
+    'https://cache5.filester.me',
+    'https://cache7.filester.me',
+    'https://cache8.filester.me',
+    'https://cache6.filester.me',
+    'https://cache1.filester.me',
+];
+
+async function filesterResolveV2(httpClient, apiBase, slug, progressCB) {
+    const base = String(apiBase || 'https://filester.me').replace(/\/$/, '');
+    const fileSlug = String(slug || '').trim();
+    if (!fileSlug) return null;
+
+    try {
+        progressCB?.('[Filester] Requesting download token (v2)...');
+        const response = await httpClient.post(
+            `${base}/v2/api/public/download`,
+            JSON.stringify({ file_slug: fileSlug }),
+            {},
+            {
+                Accept: 'application/json, text/plain, */*',
+                'Content-Type': 'application/json;charset=UTF-8',
+                Origin: base,
+                Referer: `${base}/d/${fileSlug}`,
+                __xfpd_withCredentials: true,
+                __xfpd_timeout: FILESTER_API_TIMEOUT_MS,
+            },
+        );
+        const data = JSON.parse(String(response?.source || '{}'));
+        const server = String(data?.server || '').replace(/\/$/, '');
+        const file = String(data?.file || '');
+        const token = String(data?.token || '');
+        const name = String(data?.name || '');
+        if (!server || !file || !token) return null;
+
+        const filePath = file.split('/').map(encodeURIComponent).join('/');
+        let streamUrl = `${server}/v2/${filePath}?token=${encodeURIComponent(token)}&download=true`;
+        if (name) streamUrl += `&n=${encodeURIComponent(name)}`;
+
+        const finalName = name || `Filester_${fileSlug}${(/\.[A-Za-z0-9]{1,8}$/.exec(file) || [''])[0]}`;
+        filesterSlugByUrl.set(streamUrl, fileSlug);
+        filesterRefByUrl.set(streamUrl, `${base}/d/${fileSlug}`);
+        filesterNameBySlug.set(fileSlug, finalName);
+        filesterNameByUrl.set(streamUrl, finalName);
+        return { url: streamUrl, name: finalName, ref: `${base}/d/${fileSlug}` };
+    } catch (e) {
+        return null;
+    }
+}
+
 // Cyberdrop filename hints (from API)
 const cyberdropNameBySlug = new Map();
 const cyberdropNameByUrl = new Map();
@@ -424,6 +567,123 @@ function filesterBuildCandidates(token) {
 
 // Bunkr filename hints (from /v/ pages)
 const bunkrNameByUrl = new Map();
+const goonboxThumbByUrl = new Map();
+
+const GOONBOX_ORIGIN = 'https://goonbox.cr';
+const GBX_K_READY = 'xfpd_gbx_ready';
+const GBX_K_REQ = 'xfpd_gbx_req';
+const GBX_K_RES = 'xfpd_gbx_res';
+const GBX_MARKER_KEY = 'xfpd_gbx';
+const GBX_MARKER_VAL = '1';
+const GBX_POLL_MS = 150;
+const GBX_READY_TIMEOUT_MS = 20000;
+const GBX_REQ_TIMEOUT_MS = 25000;
+let gbxTabHandle = null;
+let gbxRequestId = 0;
+let gbxBridgeChain = Promise.resolve();
+
+const goonboxBridgePathAllowed = path =>
+    /^\/api\/(?:images\/[A-Za-z0-9_-]{1,64}|albums\/[A-Za-z0-9._~-]{1,128}\/images\?page=\d{1,4})$/.test(String(path || ''));
+
+const gbxGet = (key, fallback = '') => {
+    try { return GM_getValue(key, fallback); } catch (e) { return fallback; }
+};
+
+const gbxSet = (key, value) => {
+    try { GM_setValue(key, value); } catch (e) { }
+};
+
+const gbxSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function goonboxBridgeServe() {
+    let requestInProgress = false;
+    let lastRequestId = '';
+    const heartbeat = () => gbxSet(GBX_K_READY, Date.now());
+    heartbeat();
+    setInterval(heartbeat, 1000);
+
+    const handle = async raw => {
+        if (requestInProgress) return;
+        let request = null;
+        try { request = JSON.parse(String(raw || '')); } catch (e) { return; }
+        if (!request?.id || request.id === lastRequestId || !goonboxBridgePathAllowed(request.path)) return;
+        lastRequestId = request.id;
+        requestInProgress = true;
+        try {
+            const response = await fetch(`${GOONBOX_ORIGIN}${request.path}`, {
+                credentials: 'include',
+                headers: { Accept: 'application/json' },
+            });
+            gbxSet(GBX_K_RES, JSON.stringify({
+                id: request.id,
+                ok: response.ok,
+                status: response.status,
+                body: await response.text(),
+            }));
+        } catch (e) {
+            gbxSet(GBX_K_RES, JSON.stringify({ id: request.id, ok: false, status: 0, body: '' }));
+        } finally {
+            requestInProgress = false;
+        }
+    };
+
+    setInterval(() => handle(gbxGet(GBX_K_REQ, '')), GBX_POLL_MS);
+}
+
+async function goonboxBridgeGet(path, pageUrl) {
+    if (!goonboxBridgePathAllowed(path)) return null;
+    const ready = Number(gbxGet(GBX_K_READY, 0) || 0);
+    if (!ready || Date.now() - ready > 5000) {
+        gbxSet(GBX_K_READY, 0);
+        try {
+            const helperUrl = new URL(pageUrl || `${GOONBOX_ORIGIN}/`);
+            helperUrl.searchParams.set(GBX_MARKER_KEY, GBX_MARKER_VAL);
+            gbxTabHandle = GM_openInTab(helperUrl.href, { active: false, insert: true, setParent: true });
+        } catch (e) {
+            return null;
+        }
+
+        const readyDeadline = Date.now() + GBX_READY_TIMEOUT_MS;
+        while (Date.now() < readyDeadline) {
+            if (Number(gbxGet(GBX_K_READY, 0) || 0) > 0) break;
+            await gbxSleep(GBX_POLL_MS);
+        }
+        if (!Number(gbxGet(GBX_K_READY, 0) || 0)) return null;
+    }
+
+    const id = `${Date.now()}_${++gbxRequestId}`;
+    gbxSet(GBX_K_RES, '');
+    gbxSet(GBX_K_REQ, JSON.stringify({ id, path }));
+    const deadline = Date.now() + GBX_REQ_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        const raw = gbxGet(GBX_K_RES, '');
+        try {
+            const response = JSON.parse(String(raw || ''));
+            if (response?.id === id) return response;
+        } catch (e) { }
+        await gbxSleep(GBX_POLL_MS);
+    }
+    return null;
+}
+
+async function goonboxApiJson(httpClient, path, pageUrl, postId) {
+    const direct = await httpClient.get(`${GOONBOX_ORIGIN}${path}`, {}, {
+        Accept: 'application/json',
+        Referer: pageUrl || `${GOONBOX_ORIGIN}/`,
+    }, 'text').catch(() => null);
+    try {
+        const parsed = JSON.parse(String(direct?.source || ''));
+        if (parsed && typeof parsed === 'object' && !/<!doctype|<html/i.test(String(direct?.source || ''))) return parsed;
+    } catch (e) { }
+
+    const bridged = await goonboxBridgeGet(path, pageUrl);
+    try {
+        return bridged?.body ? JSON.parse(bridged.body) : null;
+    } catch (e) {
+        try { log.host.warn(postId, `Goonbox bridge returned invalid JSON: ${path}`, 'goonbox.cr'); } catch (e2) { }
+        return null;
+    }
+}
 
 
 // Bunkr/Cloudflare: best-effort warm-up to let the browser complete a JS-only CF interstitial ("Just a moment...").
@@ -834,6 +1094,21 @@ async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, orig
     return null;
 }
 
+async function xfpdBunkrSignCdnUrl(httpClient, rawUrl) {
+    try {
+        const parsed = new URL(String(rawUrl || ''));
+        if (!/\.cdn\.cr$/i.test(parsed.hostname)) return rawUrl;
+        const response = await httpClient.get(`https://glb-apisign.cdn.cr/sign?path=${encodeURIComponent(decodeURIComponent(parsed.pathname))}`, {}, {}, 'text');
+        const data = JSON.parse(String(response?.source || '{}'));
+        if (data?.token && data?.ex) {
+            parsed.searchParams.set('token', String(data.token));
+            parsed.searchParams.set('ex', String(data.ex));
+            return parsed.toString();
+        }
+    } catch (e) { }
+    return rawUrl;
+}
+
 
 
 
@@ -1082,7 +1357,9 @@ const h = {
                     ...(headers || {}),
                 };
                 const withCredentials = !!(hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials') && hdrs.__xfpd_withCredentials);
+                const timeoutMs = Number(hdrs?.__xfpd_timeout || 0) || 0;
                 try { if (hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials')) delete hdrs.__xfpd_withCredentials; } catch (e) { }
+                try { if (hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_timeout')) delete hdrs.__xfpd_timeout; } catch (e) { }
 
                 request = http({
                     url,
@@ -1091,6 +1368,11 @@ const h = {
                     data,
                     headers: hdrs,
                     ...(withCredentials ? { withCredentials: true, anonymous: false } : {}),
+                    ...(timeoutMs > 0 ? { timeout: timeoutMs } : {}),
+                    ontimeout: () => {
+                        callbacks && callbacks.onTimeout && callbacks.onTimeout();
+                        resolve({ source: '', request, status: 0, dom: null, responseHeaders, finalUrl: '', timedOut: true });
+                    },
                     onreadystatechange: response => {
                         if (response.readyState === 2) {
                             responseHeaders = response.responseHeaders;
@@ -1342,6 +1624,17 @@ const parsers = {
             // For parsing only, remove the preview <img> inside attachment links so we don't count/download it twice.
             try {
                 messageContentClone.querySelectorAll('a[href*="/attachments/"] img').forEach((img) => img.remove());
+            } catch (e) { /* ignore */ }
+
+            // XenForo may expose the same image as an anchor href and as a medium thumbnail src.
+            // Keep the original link and remove only the preview from parser input.
+            try {
+                messageContentClone.querySelectorAll('a[href] img').forEach((img) => {
+                    const src = String(img.getAttribute('src') || img.getAttribute('data-src') || '').trim();
+                    if (/\.(?:md|th)\.(?:jpe?g|png|gif|webp)(?:[?#]|$)/i.test(src) || /\/thumbs?\//i.test(src)) {
+                        img.remove();
+                    }
+                });
             } catch (e) { /* ignore */ }
 
 
@@ -2362,6 +2655,7 @@ let processing = [];
 const hosts = [
     ['Forum:Attachments', [/(\/attachments\/|\/data\/video\/)/]],
     ['Coomer:Profiles', [/coomer.st\/[~an@._-]+\/user/]],
+    ['Goonbox:image', [/goonbox\.cr\/img\//, /goonbox\.cr\/a\//]],
     ['Coomer:image', [/(\w+\.)?coomer.st\/(data|thumbnail)/]],
     ['JPGX:image', [/(simp\d+\.)?(cuckcapital\.cr|jpg\d?\.(church|fish|fishing|pet|su|cr))\/(?!(img\/|a\/|album\/))/, /jpe?g\d\.(church|fish|fishing|pet|su|cr)(\/a\/|\/album\/)[~an@-_.]+<no_qs>/]],
     ['kemono:direct link', [/.{2,6}\.kemono.cr\/data\//]],
@@ -2505,6 +2799,57 @@ const xfpdTurboSignUrlWithTimeout = async (turboId, refererUrl, nameHint) => {
 };
 
 const resolvers = [
+    [
+        [/goonbox\.cr\/img\//i],
+        async (url, httpClient) => {
+            const id = String(url || '').split('/').pop().split('?')[0];
+            if (!id) return null;
+            try {
+                const data = await goonboxApiJson(httpClient, `/api/images/${encodeURIComponent(id)}`, url, null);
+                const findOriginal = value => {
+                    if (!value || typeof value !== 'object') return null;
+                    if (Array.isArray(value)) {
+                        for (const item of value) {
+                            const found = findOriginal(item);
+                            if (found) return found;
+                        }
+                    } else {
+                        for (const key of ['original_url', 'originalUrl', 'original']) {
+                            if (typeof value[key] === 'string' && /^https?:\/\//i.test(value[key])) return value[key];
+                        }
+                        for (const item of Object.values(value)) {
+                            const found = findOriginal(item);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+                return findOriginal(data) || goonboxThumbByUrl.get(String(url).replace(/\?.*/, '').replace(/\/$/, '')) || url;
+            } catch (e) {
+                return goonboxThumbByUrl.get(String(url).replace(/\?.*/, '').replace(/\/$/, '')) || url;
+            }
+        },
+    ],
+    [
+        [/goonbox\.cr\/a\//i],
+        async (url, httpClient) => {
+            const albumSlug = String(url || '').replace(/\?.*/, '').split('/').filter(Boolean).pop();
+            if (!albumSlug) return null;
+            try {
+                const first = await goonboxApiJson(httpClient, `/api/albums/${encodeURIComponent(albumSlug)}/images?page=1`, url, null);
+                if (!Array.isArray(first?.images)) return null;
+                const resolved = first.images.map(item => item?.original_url || item?.originalUrl || item?.url).filter(Boolean);
+                const lastPage = Number(first?.pagination?.last_page || 1);
+                for (let page = 2; page <= lastPage; page++) {
+                    const data = await goonboxApiJson(httpClient, `/api/albums/${encodeURIComponent(albumSlug)}/images?page=${page}`, url, null);
+                    if (Array.isArray(data?.images)) resolved.push(...data.images.map(item => item?.original_url || item?.originalUrl || item?.url).filter(Boolean));
+                }
+                return { folderName: `goonbox_${albumSlug}`, resolved };
+            } catch (e) {
+                return null;
+            }
+        },
+    ],
     [
         [/https?:\/\/nitter\.(.{1,20})\/pic\/(orig\/)?media%2F(.{1,15})/i],
         url => url.replace(/https?:\/\/nitter\.(.{1,20})\/pic\/(orig\/)?media%2F(.{1,15})/i, 'https://pbs.twimg.com/media/$3'),
@@ -2982,6 +3327,7 @@ const resolvers = [
                         if (!finalUrl || typeof finalUrl !== 'string') return null;
                         finalUrl = finalUrl.trim();
                         if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
+                        finalUrl = await xfpdBunkrSignCdnUrl(http, finalUrl);
 
                         // Attach filename hint to the final URL too (so later download naming can pick it up).
                         try {
@@ -3855,10 +4201,77 @@ const resolvers = [
                 return json;
             };
 
+            let modernGenerateWT = null;
+
+            const modernGetGenerateWT = async () => {
+                if (modernGenerateWT) return modernGenerateWT;
+                const response = await gmReq('GET', 'https://gofile.io/js/wt.obf.js', null, {}, 'text');
+                const source = String(response?.source || '');
+                if (!source || !/generateWT/.test(source)) throw new Error('GoFile generateWT unavailable');
+                const factory = new Function('navigator', `${source}\nreturn typeof generateWT === 'function' ? generateWT : null;`);
+                modernGenerateWT = factory(navigator);
+                if (typeof modernGenerateWT !== 'function') throw new Error('GoFile generateWT invalid');
+                return modernGenerateWT;
+            };
+
+            const modernGetAccountToken = async () => {
+                const cached = gmGet(AT_KEY, null);
+                let token = cached?.token || settings?.hosts?.goFile?.token || '';
+                if (!token) {
+                    const response = await gmReq('POST', 'https://api.gofile.io/accounts', JSON.stringify({}), {
+                        accept: 'application/json',
+                        'content-type': 'application/json',
+                    }, 'text');
+                    const json = JSON.parse(String(response?.source || '{}'));
+                    token = String(json?.data?.token || '');
+                    if (!token) throw new Error('GoFile account token unavailable');
+                    await gmReq('GET', 'https://api.gofile.io/accounts/website', null, {
+                        accept: 'application/json',
+                        authorization: `Bearer ${token}`,
+                    }, 'text');
+                    gmSet(AT_KEY, { token, ts: Date.now() });
+                }
+                settings.hosts.goFile.token = token;
+                await gofileSyncCookie(token);
+                return token;
+            };
+
+            const modernApiContents = async (contentId, passwordHash) => {
+                const token = await modernGetAccountToken();
+                const generateWT = await modernGetGenerateWT();
+                const wt = generateWT(token);
+                const params = new URLSearchParams({
+                    contentFilter: '',
+                    page: '1',
+                    pageSize: '1000',
+                    sortField: 'createTime',
+                    sortDirection: '-1',
+                });
+                if (passwordHash) params.set('password', passwordHash);
+                const response = await gmReq(
+                    'GET',
+                    `https://api.gofile.io/contents/${encodeURIComponent(contentId)}?${params.toString()}`,
+                    null,
+                    {
+                        accept: 'application/json',
+                        authorization: `Bearer ${token}`,
+                        'x-website-token': wt,
+                        'x-bl': navigator?.language || '',
+                    },
+                    'text',
+                );
+                return JSON.parse(String(response?.source || '{}'));
+            };
+
             const resolveAlbum = async (urlOrId, spoilers) => {
                 const id = String(urlOrId).includes('gofile.io/d/') ? String(urlOrId).split('/').reverse()[0] : String(urlOrId);
 
-                let props = await apiContents(id, null);
+                let props = null;
+                try {
+                    props = await modernApiContents(id, null);
+                } catch (e) {
+                    props = await apiContents(id, null);
+                }
 
                 if (props && props.status === 'error-notFound') {
                     // log.host.error(postId, `::Album not found::: ${urlOrId}`, 'gofile.io');
@@ -3881,7 +4294,12 @@ const resolvers = [
 
                     for (const spoiler of spoilers) {
                         const hash = sha256(spoiler);
-                        const attempt = await apiContents(id, hash);
+                        let attempt = null;
+                        try {
+                            attempt = await modernApiContents(id, hash);
+                        } catch (e) {
+                            attempt = await apiContents(id, hash);
+                        }
 
                         if (attempt && attempt.status === 'ok') {
                             // log.host.info(postId, `::Successfully authenticated with:: ${spoiler}`, 'gofile.io');
@@ -5433,7 +5851,19 @@ const resolvers = [
 
             if (!slug) return null;
 
-            const apiBase = 'https://filester.me';
+            const apiBase = (() => {
+                try {
+                    const parsed = new URL(url);
+                    return /^([a-z0-9-]+\.)*filester\.(me|sh|si|gg)$/i.test(parsed.hostname)
+                        ? parsed.origin
+                        : 'https://filester.me';
+                } catch (e) {
+                    return 'https://filester.me';
+                }
+            })();
+
+            const v2 = await filesterResolveV2(http, apiBase, slug, progressCB);
+            if (v2?.url) return v2.url;
 
             const mkHeaders = () => ({
                 Accept: 'application/json, text/plain, */*',
@@ -5683,7 +6113,7 @@ const resolvers = [
                         'GET',
                         probeUrl,
                         { onResponseHeadersReceieved: () => { } },
-                        { Range: 'bytes=0-0', Referer: `${apiBase}/`, __xfpd_withCredentials: true },
+                        { Range: 'bytes=0-0', Referer: `${apiBase}/`, __xfpd_withCredentials: true, __xfpd_timeout: FILESTER_PROBE_TIMEOUT_MS },
                         null,
                         'text',
                     );
@@ -6229,6 +6659,10 @@ const setProcessing = (isProcessing, postId) => {
     } else if (isProcessing) {
         processing.push({ postId, processing: isProcessing });
     }
+
+    if (!isProcessing && !processing.some(item => item.processing)) {
+        gofileRestoreCookie();
+    }
 };
 // Watched downloads runtime controls.
 const XFPD_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
@@ -6240,7 +6674,7 @@ let xfpdDownloadTimeoutConfig = { value: 30, unit: 'minutes' };
 let xfpdRestartDownload = false;
 let xfpdWatchedServerFilter = null;
 let xfpdWatchedExistingRecentCount = 0;
-let xfpdWatchedThreadName = '';
+const xfpdWatchedRunSeenKeys = new Set();
 const xfpdWatchedServerState = { attempted: false, enabled: false, baseUrl: '' };
 
 const xfpdServerRequest = (method, url, body = null) => new Promise(resolve => {
@@ -6263,7 +6697,12 @@ const xfpdServerRequest = (method, url, body = null) => new Promise(resolve => {
     } catch (e) { resolve({ ok: false, data: null }); }
 });
 
-async function xfpdInitWatchedServerOnce(serverUrl) {
+async function xfpdInitWatchedServerOnce(serverUrl, forceCheck = false) {
+    if (forceCheck) {
+        xfpdWatchedServerState.attempted = false;
+        xfpdWatchedServerState.enabled = false;
+        xfpdWatchedServerState.baseUrl = '';
+    }
     if (xfpdWatchedServerState.attempted) return xfpdWatchedServerState.enabled;
     xfpdWatchedServerState.attempted = true;
     const value = String(serverUrl || '').trim().replace(/\/+$/, '');
@@ -6292,27 +6731,24 @@ function xfpdServerNamesForResource(resource) {
 }
 
 async function xfpdCheckWatchedResources(resources, filterType) {
-    if (!xfpdWatchedServerState.enabled || !resources.length) return { existingIndexes: new Set(), checked: 0 };
+    if (!xfpdWatchedServerState.enabled || !resources.length) return { existingIndexes: new Set(), checked: 0, ok: !!xfpdWatchedServerState.enabled };
     const items = resources.map((resource, index) => ({
         index,
         id: `${resource.original || ''}|${resource.url || ''}`,
         names: xfpdServerNamesForResource(resource),
     }));
-    const response = await xfpdServerRequest('POST', `${xfpdWatchedServerState.baseUrl}/check`, {
-        threadName: xfpdWatchedThreadName,
-        items,
-    });
-    if (!response.ok || !Array.isArray(response.data?.items)) return { existingIndexes: new Set(), checked: 0 };
+    const response = await xfpdServerRequest('POST', `${xfpdWatchedServerState.baseUrl}/check`, { items });
+    if (!response.ok || !Array.isArray(response.data?.items)) return { existingIndexes: new Set(), checked: 0, ok: false };
     return {
         existingIndexes: new Set(response.data.items.filter(item => item.exists).map(item => Number(item.index))),
         checked: resources.length,
+        ok: true,
     };
 }
 
 async function xfpdRegisterWatchedResources(resources) {
     if (!xfpdWatchedServerState.enabled || !resources.length) return;
     await xfpdServerRequest('POST', `${xfpdWatchedServerState.baseUrl}/register`, {
-        threadName: xfpdWatchedThreadName,
         items: resources.map(resource => ({
             id: `${resource.original || ''}|${resource.url || ''}`,
             names: xfpdServerNamesForResource(resource),
@@ -6389,6 +6825,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     log.post.info(postId, `::Using ${enabledHosts.length} host(s)::: ${enabledHosts.map(h => h.name).join(', ')}`, postNumber);
 
     log.separator(postId);
+    log.post.info(postId, `::Script version::: ${xfpdVersion}`, postNumber);
     log.post.info(postId, `::Preparing download::`, postNumber);
 
     let completed = 0;
@@ -6735,11 +7172,20 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         const filtered = [];
         const normalizeResolvedUrl = (u) => {
             try {
-                const x = new URL(String(u || ''));
-                const path = String(x.pathname || '').replace(/\/+$/, '');
-                return `${x.protocol}//${x.host}${path}${x.search}`.toLowerCase();
+                const x = new URL(String(u || ''), window.location.href);
+                x.hash = '';
+                x.search = '';
+                x.pathname = String(x.pathname || '')
+                    .replace(/\.(?:md|th)(?=\.(?:jpe?g|png|gif|webp)$)/i, '')
+                    .replace(/\/thumbs?\//i, '/images/');
+                return x.toString().replace(/\/$/, '').toLowerCase();
             } catch (e) {
-                return String(u || '').trim().toLowerCase().replace(/\/+$/, '');
+                return String(u || '')
+                    .split(/[?#]/)[0]
+                    .replace(/\.(?:md|th)(?=\.(?:jpe?g|png|gif|webp)$)/i, '')
+                    .replace(/\/thumbs?\//i, '/images/')
+                    .replace(/\/$/, '')
+                    .toLowerCase();
             }
         };
 
@@ -6766,29 +7212,63 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     log.post.info(postId, '::Url resolution completed::', postNumber);
 
     if (xfpdWatchedServerFilter && xfpdWatchedServerState.enabled) {
+        const identityKey = resource => {
+            const values = [resource?.original, resource?.url].map(value => String(value || '').trim().split(/[?#]/)[0].toLowerCase());
+            const goonboxId = String(values[0] || '').match(/goonbox\.cr\/img\/([^/]+)/i)?.[1] || '';
+            return goonboxId ? `goonbox:${goonboxId}` : values.filter(Boolean).sort().join('|');
+        };
+
+        const runUnique = [];
+        for (const resource of resolved.filter(item => item?.url)) {
+            const key = identityKey(resource);
+            if (!key || xfpdWatchedRunSeenKeys.has(key)) {
+                log.post.info(postId, `::Skipping duplicate in watched run::: ${resource.url}`, postNumber);
+                continue;
+            }
+            xfpdWatchedRunSeenKeys.add(key);
+            runUnique.push(resource);
+        }
+        resolved = resolved.filter(resource => !resource?.url || runUnique.includes(resource));
+
         const candidates = resolved.filter(resource => resource?.url);
-        const fullCheck = await xfpdCheckWatchedResources(candidates, xfpdWatchedServerFilter);
+        const remaining = Math.max(0, 20 - xfpdWatchedExistingRecentCount);
+        const resourcesToCheck = xfpdWatchedServerFilter === 'date' ? candidates.slice(0, remaining) : candidates;
+        const serverCheck = await xfpdCheckWatchedResources(resourcesToCheck, xfpdWatchedServerFilter);
+
+        if (!serverCheck.ok) {
+            log.post.error(postId, '::Watched duplicate check failed; stopping before download::', postNumber);
+            setProcessing(false, postId);
+            return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
+        }
 
         if (xfpdWatchedServerFilter === 'date') {
-            if (fullCheck.existingIndexes.size) {
-                const existing = new Set([...fullCheck.existingIndexes].map(index => candidates[index]));
-                resolved = resolved.filter(resource => !existing.has(resource));
-                xfpdWatchedExistingRecentCount += existing.size;
-                log.post.info(postId, `::Watched date: skipped ${existing.size} existing media (${xfpdWatchedExistingRecentCount}/20)::`, postNumber);
+            xfpdWatchedExistingRecentCount += serverCheck.existingIndexes.size;
 
-                if (xfpdWatchedExistingRecentCount >= 20) {
-                    log.post.info(postId, '::Watched date: 20 existing media found; skipping thread::', postNumber);
-                    setProcessing(false, postId);
-                    return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
-                }
+            if (serverCheck.existingIndexes.size) {
+                const existing = new Set([...serverCheck.existingIndexes].map(index => resourcesToCheck[index]));
+                resolved = resolved.filter(resource => !existing.has(resource));
+                log.post.info(postId, `::Watched date: skipped ${existing.size} existing media::`, postNumber);
             }
-        } else if (fullCheck.existingIndexes.size) {
-            const existing = new Set([...fullCheck.existingIndexes].map(index => candidates[index]));
+
+            if (xfpdWatchedExistingRecentCount >= 20) {
+                log.post.info(postId, '::Watched date: 20 recent media already exist; skipping thread::', postNumber);
+                setProcessing(false, postId);
+                return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
+            }
+        } else if (serverCheck.existingIndexes.size) {
+            const existing = new Set([...serverCheck.existingIndexes].map(index => resourcesToCheck[index]));
             resolved = resolved.filter(resource => !existing.has(resource));
             log.post.info(postId, `::Watched reaction score: skipped ${existing.size} existing media::`, postNumber);
         }
 
-        await xfpdRegisterWatchedResources(candidates.filter((resource, index) => !fullCheck.existingIndexes.has(index)));
+        const checkedResources = new Set(resourcesToCheck);
+        await xfpdRegisterWatchedResources(candidates.filter(resource => checkedResources.has(resource) && !serverCheck.existingIndexes.has(resourcesToCheck.indexOf(resource))));
+
+        if (xfpdWatchedServerFilter === 'date' && xfpdWatchedExistingRecentCount >= 20) {
+            log.post.info(postId, '::Watched date: duplicate limit reached after server check::', postNumber);
+            setProcessing(false, postId);
+            return { paused: false, skippedExisting: true, postId, postNumber, totalDownloadable: 0, completed: 0 };
+        }
     }
 
     let totalDownloadable = resolved.filter(r => r.url).length;
@@ -7005,6 +7485,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
         };
 
         let completedBatchedDownloads = 0;
+        const settledBatchResources = new WeakSet();
+        const settleBatchResource = resource => {
+            if (!resource || settledBatchResources.has(resource)) return false;
+            settledBatchResources.add(resource);
+            completedBatchedDownloads++;
+            return true;
+        };
 
         let cyberdropDirectWarmupDone = false;
 
@@ -7456,6 +7943,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     return;
                 }
 
+                // A batch can trigger a retry callback after the original request already
+                // started. Block duplicate pass-1 starts for the same resolved resource.
+                if (resource && pass === 1) {
+                    if (resource.__xfpdAttemptStarted) return;
+                    resource.__xfpdAttemptStarted = true;
+                }
+
                 let { url, host, original, folderName } = resource;
                 const zippedForThis = !!(postSettings.zipped && !(resource && (resource.forceDirect || resource.forceUnzipped)));
                 const isGoFile = isGoFileUrl(url);
@@ -7465,6 +7959,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 const isBunkr = String((host && host.name) || '').toLowerCase() === 'bunkr' || /bunkr/i.test(String(url || '')) || /bunkr/i.test(String(original || ''));
                 const isFilester = String((host && host.name) || '').toLowerCase() === 'filester' || /(?:^|\.)filester\.me/i.test(String(url || ''));
 
+                if (isGoFile) {
+                    try {
+                        const accountToken = settings?.hosts?.goFile?.token;
+                        if (accountToken) await gofileSyncCookie(accountToken);
+                    } catch (e) { }
+                }
+
                 // Filester: turn short /d/<slug> view URLs into cache /v/<token> stream URLs (no tabs).
                 // Album pages (/f/...) mostly contain only short slugs, which require this token step.
                 if (isFilester) {
@@ -7473,6 +7974,11 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         const isFilesterD = /(^|\.)filester\.me$/i.test(String(uF.host || '')) && /^\/d\//i.test(String(uF.pathname || ''));
                         if (isFilesterD) {
                             const slug = String(uF.pathname || '').split('/').filter(Boolean).pop() || '';
+                            const v2 = await filesterResolveV2(h.http, uF.origin, slug);
+                            if (v2?.url) {
+                                url = v2.url;
+                                resource.url = v2.url;
+                            } else {
                             // Short slugs look like "d8ZdCxc" / "QnUVP6A" etc.
                             const looksLikeShortSlug = /^[A-Za-z0-9]{6,12}$/.test(slug);
                             if (looksLikeShortSlug) {
@@ -7533,6 +8039,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     try { resource.url = streamUrl; } catch (e) { }
                                 }
                             }
+                            }
                         }
                     } catch (e) { }
                 }
@@ -7563,8 +8070,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (url.includes('turbocdn.st')) {
                     reflink = "https://turbo.cr/"
                 }
-                if (/(?:\bfilester\.(me|sh|si|gg)\b|cache\d+\.filester\.(me|sh|si|gg))/i.test(String(url || ''))) {
-                    reflink = "https://filester.me/"
+                if (isFilester || filesterRefByUrl.has(String(url || '')) || /(?:\bfilester\.(me|sh|si|gg)\b|cache\d+\.filester\.(me|sh|si|gg))/i.test(String(url || ''))) {
+                    reflink = filesterRefByUrl.get(String(url || '')) || "https://filester.me/";
                 }
 
 
@@ -7858,7 +8365,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         if (!(r.status >= 200 && r.status < 300) || !blob || !blobSize) {
                                             log.post.error(postId, `::Pixeldrain list ZIP blob fetch failed (status=${r.status}, ct=${ct}, size=${blobSize})::: ${url}`, postNumber);
                                             completed++;
-                                            completedBatchedDownloads++;
+                                            settleBatchResource(resource);
                                             return;
                                         }
 
@@ -7872,7 +8379,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             }
 
                                             completed++;
-                                            completedBatchedDownloads++;
+                                            settleBatchResource(resource);
                                             h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                             h.ui.setElProps(statusLabel, { color: '#2d9053' });
                                             h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
@@ -7889,7 +8396,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             onload: () => {
                                                 try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 completed++;
-                                                completedBatchedDownloads++;
+                                                settleBatchResource(resource);
                                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                                 h.ui.setElProps(statusLabel, { color: '#2d9053' });
                                                 h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
@@ -7899,34 +8406,34 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                                 log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) failed (${(err && err.error) || 'unknown'})::: ${url}`, postNumber);
                                                 console.log('[Pixeldrain list ZIP debug] GM_download(blob:) error', err);
                                                 completed++;
-                                                completedBatchedDownloads++;
+                                                settleBatchResource(resource);
                                             },
                                             ontimeout: err => {
                                                 try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) timed out::: ${url}`, postNumber);
                                                 console.log('[Pixeldrain list ZIP debug] GM_download(blob:) timeout', err);
                                                 completed++;
-                                                completedBatchedDownloads++;
+                                                settleBatchResource(resource);
                                             },
                                         });
                                     } catch (e) {
                                         log.post.error(postId, `::Pixeldrain list ZIP debug handler threw::: ${url}`, postNumber);
                                         console.log('[Pixeldrain list ZIP debug] handler exception', e);
                                         completed++;
-                                        completedBatchedDownloads++;
+                                        settleBatchResource(resource);
                                     }
                                 },
                                 onerror: err => {
                                     log.post.error(postId, `::Pixeldrain list ZIP blob fetch network error::: ${url}`, postNumber);
                                     console.log('[Pixeldrain list ZIP debug] GM_xmlhttpRequest onerror', err);
                                     completed++;
-                                    completedBatchedDownloads++;
+                                    settleBatchResource(resource);
                                 },
                                 ontimeout: err => {
                                     log.post.error(postId, `::Pixeldrain list ZIP blob fetch timed out::: ${url}`, postNumber);
                                     console.log('[Pixeldrain list ZIP debug] GM_xmlhttpRequest ontimeout', err);
                                     completed++;
-                                    completedBatchedDownloads++;
+                                    settleBatchResource(resource);
                                 },
                             });
 
@@ -8031,7 +8538,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             },
                             onload: () => {
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#2d9053' });
@@ -8041,7 +8548,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             },
                             onerror: err => {
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8060,7 +8567,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             },
                             ontimeout: err => {
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
                                 log.post.error(postId, `::DIRECT download timed out::: ${url}`, postNumber);
                                 console.log('[DIRECT download timeout]', {
                                     originalUrl: origUrl,
@@ -8153,7 +8660,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     } catch (e) {
                         // Safety: never hang the batch loop.
                         completed++;
-                        completedBatchedDownloads++;
+                        settleBatchResource(resource);
                         log.post.error(postId, `::DIRECT download error::: ${url}`, postNumber);
                         console.log(e);
                     }
@@ -8279,7 +8786,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                                 // Retry failed -> mark as unsuccessful and continue.
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8313,7 +8820,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                                 // Retry failed -> mark as unsuccessful and continue.
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8482,7 +8989,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                                     // If we only have a /d/ view URL, DIRECT would just save HTML.
                                     completed++;
-                                    completedBatchedDownloads++;
+                                    settleBatchResource(resource);
 
                                     h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                     h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8495,7 +9002,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 }
 
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8545,7 +9052,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             if (badStatus || isHtml || tinyLooksLikeHtml || isMaint) {
                                 if (isMaint) bunkrMaintenanceHandled = true;
                                 completed++;
-                                completedBatchedDownloads++;
+                                settleBatchResource(resource);
 
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8561,7 +9068,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                         // Success path (unchanged)
                         completed++;
-                        completedBatchedDownloads++;
+                        settleBatchResource(resource);
 
                         h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                         h.ui.setElProps(statusLabel, { color: '#2d9053' });
@@ -8824,7 +9331,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 if (gmDlResolved) return;
                                 gmDlResolved = true;
                                 if (completed < totalDownloadable) completed++;
-                                completedBatchedDownloads++;
+                                    settleBatchResource(resource);
                                 h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: success ? '#2d9053' : '#b23b3b' });
                                 h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
@@ -8872,7 +9379,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         if (p) clearInterval(p.intervalId);
 
                         completed++;
-                        completedBatchedDownloads++;
+                                    settleBatchResource(resource);
 
                         h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
                         h.ui.setElProps(statusLabel, { color: '#b23b3b' });
@@ -8898,7 +9405,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         }
 
                         completed++;
-                        completedBatchedDownloads++;
+                                    settleBatchResource(resource);
                     },
                 });
 
@@ -8951,7 +9458,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             if (completed < totalDownloadable) {
                                 completed++;
                             }
-                            completedBatchedDownloads++;
+                            settleBatchResource(resource);
 
                             if (completedBatchedDownloads >= batch.length) {
                                 completedBatchedDownloads = 0;
@@ -8975,7 +9482,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         if (completed < totalDownloadable) {
                             completed++;
                         }
-                        completedBatchedDownloads++;
+                        settleBatchResource(resource);
 
                         if (completedBatchedDownloads >= batch.length) {
                             completedBatchedDownloads = 0;
@@ -9411,13 +9918,14 @@ async function getAllWatchedThreads() {
     let detectedLastPage = null;
     const looksLikeThreadBlock = sourceText => {
         const lowSrc = String(sourceText || '').slice(0, 2000).toLowerCase();
-        return /oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
+        return /rate limit|too many requests|429|oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
     };
+    const looksLikeRateLimit = sourceText => /rate limit|too many requests|429/i.test(String(sourceText || '').slice(0, 4000));
     const retrySchedule = [2500, 5000, 10000];
     const blockedRetryDelayMs = 7000;
-    const retryAfterBlock = async pageUrl => {
+    const retryAfterBlock = async (pageUrl, rateLimited = false) => {
         try {
-            await xfpdSimpcityThreadWarmup(pageUrl, { force: true, ms: SIMPCITY_THREAD_FORCE_WARMUP_MS });
+            if (!rateLimited) await xfpdSimpcityThreadWarmup(pageUrl, { force: true, ms: SIMPCITY_THREAD_FORCE_WARMUP_MS });
         } catch (e) { }
         try {
             await h.delayedResolve(blockedRetryDelayMs);
@@ -9450,7 +9958,7 @@ async function getAllWatchedThreads() {
                         const status = response?.status ?? 'n/a';
                         const finalUrl = response?.finalUrl || response?.responseURL || 'n/a';
                         console.warn(`Watched threads page blocked (page ${currentPage}) status=${status} finalUrl=${finalUrl} url=${pageUrl}`);
-                        await retryAfterBlock(pageUrl);
+                        await retryAfterBlock(pageUrl, looksLikeRateLimit(source));
                         if (retries > 1) {
                             const retryDelay = retrySchedule[retrySchedule.length - retries];
                             console.warn(`Watched threads page ${currentPage} blocked. Retrying after ${retryDelay}ms...`);
@@ -9909,7 +10417,20 @@ function createWatchedThreadsUI(threads) {
     container.appendChild(controlsVisibilityRow);
     container.appendChild(controlsBody);
 
-    return { container, orderSelect, filterSelect, serverInput, controlsVisibilityCheckbox, pauseCheckbox, timeoutInput, timeoutUnitSelect, asyncConcInput, poolSizeInput };
+    return {
+        container,
+        orderSelect,
+        filterSelect,
+        serverInput,
+        controlsVisibilityCheckbox,
+        pauseCheckbox,
+        timeoutInput,
+        timeoutUnitSelect,
+        asyncConcInput,
+        poolSizeInput,
+        syncTimeoutConfig,
+        syncWorkerConfig,
+    };
 }
 
 /**
@@ -9941,13 +10462,13 @@ const addDownloadWatchedButton = () => {
 async function processThreadFromHTML(url, filterType = 'date') {
     try {
         xfpdWatchedServerFilter = filterType;
-        xfpdWatchedExistingRecentCount = 0;
         let threadBlockedOnInitialLoad = false;
 
         const looksLikeThreadBlock = sourceText => {
             const lowSrc = String(sourceText || '').slice(0, 2000).toLowerCase();
-            return /oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
+            return /rate limit|too many requests|429|oopsies|just a moment|cloudflare|checking your browser|ddos-guard|ddg-origin|ddg-l10n|js-challenge|please log|please sign in|please login|please sign-in|please sign in to/.test(lowSrc);
         };
+        const looksLikeRateLimit = sourceText => /rate limit|too many requests|429/i.test(String(sourceText || '').slice(0, 4000));
 
         const retrySchedule = [5000, 10000, 16000, 22000];
         const blockedRetryDelayMs = 7000;
@@ -10055,9 +10576,9 @@ async function processThreadFromHTML(url, filterType = 'date') {
             return nativeSource ? nativeResponse : gmResponse;
         };
 
-        const retryAfterBlock = async (pageUrl, originUrl) => {
+        const retryAfterBlock = async (pageUrl, originUrl, rateLimited = false) => {
             try {
-                if (!xfpdIsSimpcityThreadTrusted(originUrl || pageUrl)) {
+                if (!rateLimited && !xfpdIsSimpcityThreadTrusted(originUrl || pageUrl)) {
                     threadFetchTelemetry.warmupRuns++;
                     await xfpdSimpcityThreadWarmup(originUrl || pageUrl, { force: true, ms: SIMPCITY_THREAD_FORCE_WARMUP_MS });
                 }
@@ -10067,10 +10588,10 @@ async function processThreadFromHTML(url, filterType = 'date') {
             } catch (e) { }
         };
 
-        const waitUntilThreadUnblocked = async (pageUrl, originUrl) => {
+        const waitUntilThreadUnblocked = async (pageUrl, originUrl, rateLimited = false) => {
             const verifyAttempts = 2;
             for (let i = 0; i < verifyAttempts; i++) {
-                await retryAfterBlock(pageUrl, originUrl);
+            await retryAfterBlock(pageUrl, originUrl, rateLimited);
                 const probe = await getThreadPage(pageUrl);
                 const probeSource = String(probe?.source || '');
                 if (probeSource && !looksLikeThreadBlock(probeSource)) {
@@ -10106,7 +10627,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 if (looksLikeThreadBlock(firstPageSource)) {
                     threadFetchTelemetry.blockedDetections++;
                     logThreadFetchState('Thread block detected on initial page load', 1, urlWithFilter, response);
-                    const recovered = await waitUntilThreadUnblocked(urlWithFilter, baseUrl);
+                    const recovered = await waitUntilThreadUnblocked(urlWithFilter, baseUrl, looksLikeRateLimit(firstPageSource));
                     if (recovered?.source && !looksLikeThreadBlock(recovered.source)) {
                         firstPageSource = recovered.source;
                         xfpdMarkSimpcityThreadTrusted(baseUrl);
@@ -10201,7 +10722,6 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 ? raw.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim()
                 : raw;
         }
-        xfpdWatchedThreadName = threadTitle;
 
         for (let page = lastPage; page >= 1; page--) {
 
@@ -10228,6 +10748,8 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 // Retry logic for DDoS-Guard and other temporary blocks
                 let source = null;
                 let retries = retrySchedule.length;
+                let pageBlocked = false;
+                let pageBlockReason = 'page_blocked';
 
                 while (retries > 0) {
                     const response = await getThreadPage(pageUrl);
@@ -10238,7 +10760,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
                         if (looksLikeThreadBlock(source)) {
                             threadFetchTelemetry.blockedDetections++;
                             logThreadFetchState('Thread block detected on page fetch', page, pageUrl, response);
-                            const recovered = await waitUntilThreadUnblocked(pageUrl, baseUrl);
+                            const recovered = await waitUntilThreadUnblocked(pageUrl, baseUrl, looksLikeRateLimit(source));
                             if (recovered?.source && !looksLikeThreadBlock(recovered.source)) {
                                 source = recovered.source;
                                 xfpdMarkSimpcityThreadTrusted(baseUrl);
@@ -10254,6 +10776,8 @@ async function processThreadFromHTML(url, filterType = 'date') {
                             } else {
                                 console.warn(`Thread block persisted after retries on page ${page}: ${pageUrl}`);
                                 threadFetchTelemetry.skippedPagesBlocked++;
+                                pageBlocked = true;
+                                pageBlockReason = /rate limit|too many requests|429/i.test(String(source || '')) ? 'rate_limit' : 'page_blocked';
                                 source = null;
                                 break; // Exit retry loop, will skip this page
                             }
@@ -10278,6 +10802,14 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                 if (!source) {
                     console.warn(`Page ${page} empty or failed: ${pageUrl}`);
+                    if (pageBlocked) {
+                        return {
+                            ok: false,
+                            blocked: true,
+                            reason: pageBlockReason,
+                            baseUrl,
+                        };
+                    }
                     continue;
                 }
 
@@ -10523,6 +11055,16 @@ let skipCurrentThread = false;
 (function () {
     try { if (window.__XFPD_ABORT_MAIN) return; } catch (e) { }
 
+    try {
+        if (/(^|\.)gofile\.io$/i.test(location.hostname)) return;
+        if (/(^|\.)goonbox\.cr$/i.test(location.hostname)) {
+            if (new URLSearchParams(location.search).get(GBX_MARKER_KEY) === GBX_MARKER_VAL) {
+                goonboxBridgeServe();
+            }
+            return;
+        }
+    } catch (e) { }
+
     window.addEventListener('beforeunload', e => {
         if (processing.find(p => p.processing)) {
             const message = 'Downloads are in progress. Sure you wanna exit this page?';
@@ -10629,8 +11171,8 @@ let skipCurrentThread = false;
                         return;
                     }
 
-                    const { container, orderSelect, filterSelect, serverInput, pauseCheckbox, timeoutInput, timeoutUnitSelect } = createWatchedThreadsUI(allThreads);
-                    threadUIControls = { container, orderSelect, filterSelect, serverInput, pauseCheckbox, timeoutInput, timeoutUnitSelect };
+                    const { container, orderSelect, filterSelect, serverInput, pauseCheckbox, timeoutInput, timeoutUnitSelect, asyncConcInput, poolSizeInput, syncTimeoutConfig, syncWorkerConfig } = createWatchedThreadsUI(allThreads);
+                    threadUIControls = { container, orderSelect, filterSelect, serverInput, pauseCheckbox, timeoutInput, timeoutUnitSelect, asyncConcInput, poolSizeInput, syncTimeoutConfig, syncWorkerConfig };
 
                     const parent = btnWatch.parentNode;
                     if (parent) {
@@ -10654,10 +11196,10 @@ let skipCurrentThread = false;
                 e.preventDefault();
 
                 if (isDownloadingAll) {
-                    // Se já está fazendo download, marcar para restart com novos filtros
-                    log.write(null, 'Download já em andamento. Reiniciando com novos filtros...', 'WARN');
+                    log.write(null, 'Download já em andamento. Reiniciando com os valores atuais da UI...', 'WARN');
                     xfpdRestartDownload = true;
-                    skipCurrentThread = true; // Skip current thread para interromper o fluxo
+                    skipCurrentThread = true;
+                    xfpdRequestSkipPost(xfpdActiveWatchedPost?.postId);
                     return;
                 }
 
@@ -10681,10 +11223,22 @@ let skipCurrentThread = false;
 
                 const orderValue = threadUIControls?.orderSelect?.value || 'recent';
                 const filterValue = threadUIControls?.filterSelect?.value || 'date';
-                await xfpdInitWatchedServerOnce(threadUIControls?.serverInput?.value || '');
+                threadUIControls?.syncTimeoutConfig?.();
+                threadUIControls?.syncWorkerConfig?.();
+                const asyncConcurrency = Math.max(1, Number(threadUIControls?.asyncConcInput?.value) || 1);
+                const workerPoolSize = Math.max(1, Number(threadUIControls?.poolSizeInput?.value) || 1);
+                xfpdWorkerConfig.asyncConcurrency = asyncConcurrency;
+                xfpdWorkerConfig.workerPoolSize = workerPoolSize;
+
+                const serverOnline = await xfpdInitWatchedServerOnce(threadUIControls?.serverInput?.value || '', true);
+                if (!serverOnline) {
+                    alert('Servidor de arquivos indisponível. Verifique o endereço e tente novamente.');
+                    return;
+                }
 
                 isDownloadingAll = true;
                 skipCurrentThread = false;
+                xfpdWatchedRunSeenKeys.clear();
                 xfpdSkipPostRequested = false;
                 xfpdSkipPostTargetId = null;
                 btnSkip.disabled = false;
@@ -10734,44 +11288,29 @@ let skipCurrentThread = false;
 
                     log.write(null, `Iniciando download de ${urlsToProcess.length} threads watched (Filtro: ${filterValue})`, 'INFO');
 
-                    // Inicializar worker pool (tamanho definido pelo controle de UI)
-                    WorkerPool.init(Number(xfpdWorkerConfig.workerPoolSize || 3));
+                    // Keep complete threads sequential: each thread must finish page 1..N
+                    // before the next one starts, otherwise SimpCity rate-limits the session.
+                    WorkerPool.init(1);
 
-                    // Processar threads com worker pool
                     for (const url of urlsToProcess) {
-                        if (skipCurrentThread) {
-                            log.write(null, `Pulando thread atual: ${url}`, 'INFO');
-                            skipCurrentThread = false;
-                            continue;
-                        }
-
+                        if (skipCurrentThread || xfpdRestartDownload) break;
                         log.write(null, `Processando thread: ${url} (Filtro: ${filterValue})`, 'INFO');
+                        // The duplicate limit belongs to this thread only.
                         xfpdWatchedExistingRecentCount = 0;
-
-                        // Adicionar task ao worker pool
-                        const result = await WorkerPool.addTask(async () => {
-                            return await processThreadFromHTML(url, filterValue);
-                        });
-
+                        let result;
+                        try {
+                            result = await WorkerPool.addTask(async () => processThreadFromHTML(url, filterValue));
+                        } finally {
+                            // Never carry duplicate counts into the next thread.
+                            xfpdWatchedExistingRecentCount = 0;
+                        }
                         if (result && result.blocked) {
                             consecutiveBlockedThreads++;
-                            log.write(null, `Thread bloqueada (${consecutiveBlockedThreads}x seguidas): ${url}`, 'WARN');
+                            log.write(null, `Thread bloqueada (${consecutiveBlockedThreads}x seguidas): ${url} (${result.reason || 'blocked'})`, 'WARN');
 
                             if (consecutiveBlockedThreads >= SIMPCITY_MANUAL_CHALLENGE_BLOCK_THRESHOLD) {
-                                log.write(null, 'Bloqueio consecutivo detectado. Abrindo challenge manual...', 'WARN');
-
-                                if (threadUIControls && threadUIControls.pauseCheckbox) {
-                                    threadUIControls.pauseCheckbox.checked = true;
-                                }
-
                                 const shouldContinue = await xfpdHandleSimpcityManualChallenge(url);
-
-                                if (threadUIControls && threadUIControls.pauseCheckbox) {
-                                    threadUIControls.pauseCheckbox.checked = false;
-                                }
-
                                 consecutiveBlockedThreads = 0;
-
                                 if (!shouldContinue) {
                                     log.write(null, 'Fila de watched encerrada pelo usuario apos challenge.', 'WARN');
                                     break;
@@ -10790,7 +11329,6 @@ let skipCurrentThread = false;
                     isDownloadingAll = false;
                     xfpdPauseDownloads = false;
                     xfpdWatchedServerFilter = null;
-                    xfpdWatchedThreadName = '';
                     xfpdWatchedExistingRecentCount = 0;
                     xfpdClearActiveWatchedPost();
                     btnSkip.disabled = true;
