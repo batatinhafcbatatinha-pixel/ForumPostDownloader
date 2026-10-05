@@ -25,7 +25,7 @@ Its behavior depends on the **Sort within Thread** setting:
    python media_sync_server.py --root "C:\Users\user\Downloads\"
    ```
 
-3. Keep the server running before you start downloading. You can also start it again by clicking the download button.
+3. Keep the server running before you start downloading to enable duplicate filtering. If the server is unavailable, downloads continue without checking the local file index.
 
 ## Notes
 
