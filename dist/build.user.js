@@ -470,6 +470,7 @@ const gofileRestoreCookie = () => new Promise(resolve => {
 
 const FILESTER_API_TIMEOUT_MS = 20000;
 const FILESTER_PROBE_TIMEOUT_MS = 8000;
+const FILESTER_PROBE_BUDGET_MS = 25000;
 const FILESTER_STREAM_HOSTS = [
     'https://fsc1.cdn.cr',
     'https://fsc2.cdn.cr',
@@ -483,6 +484,15 @@ const FILESTER_STREAM_HOSTS = [
     'https://cache6.filester.me',
     'https://cache1.filester.me',
 ];
+
+function filesterStreamBases(apiBase) {
+    const base = String(apiBase || 'https://filester.me').replace(/\/$/, '');
+    const bases = [];
+    if (!isFF) bases.push(base);
+    bases.push(...FILESTER_STREAM_HOSTS);
+    if (isFF) bases.push(base);
+    return bases.filter((value, index, all) => all.indexOf(value) === index);
+}
 
 async function filesterResolveV2(httpClient, apiBase, slug, progressCB) {
     const base = String(apiBase || 'https://filester.me').replace(/\/$/, '');
@@ -552,17 +562,10 @@ function filesterTokenFromVUrl(u) {
     } catch (e) { return ''; }
 }
 
-function filesterBuildCandidates(token) {
+function filesterBuildCandidates(token, apiBase = 'https://filester.me') {
     const t = String(token || '').trim();
     if (!t) return [];
-    const order = [6, 1, 2, 3, 4, 5, 7, 8];
-    const out = [];
-    for (const n of order) out.push(`https://cache${n}.filester.me/v/${t}`);
-    out.push(`https://filester.me/v/${t}`);
-    out.push(`https://filester.sh/v/${t}`);
-    out.push(`https://filester.si/v/${t}`);
-    out.push(`https://filester.gg/v/${t}`);
-    return out;
+    return filesterStreamBases(apiBase).map(base => `${base}/v/${t}`);
 }
 
 // Bunkr filename hints (from /v/ pages)
@@ -6434,19 +6437,16 @@ const resolvers = [
             try {
                 if (relViewPath && /^\/v\//i.test(String(relViewPath))) {
                     if (progressCB) progressCB('[Filester] Probing cache stream URL...');
-                    const bases = [];
-                    // Chrome Tampermonkey downloads are more reliable when starting from filester.me (redirects preserve a Filester referrer).
-                    if (!isFF) bases.push(apiBase);
-                    bases.push('https://cache6.filester.me');
-                    for (let i = 1; i <= 8; i++) if (i !== 6) bases.push(`https://cache${i}.filester.me`);
-                    if (isFF) bases.push(apiBase);
+                    const bases = filesterStreamBases(apiBase);
 
                     let streamUrl = null;
                     let streamCt = '';
                     let streamSize = 0;
                     let streamHdrName = '';
+                    const probeDeadline = Date.now() + FILESTER_PROBE_BUDGET_MS;
 
                     for (const base of bases) {
+                        if (Date.now() > probeDeadline) break;
                         const cand = String(base).replace(/\/$/, '') + String(relViewPath);
                         const p = await filesterProbe(cand);
                         if (p && p.ok) {
