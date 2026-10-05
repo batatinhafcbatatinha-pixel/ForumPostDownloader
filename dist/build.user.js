@@ -10128,7 +10128,64 @@ const WorkerPool = {
 /**
  * UI para seleção de threads, ordem e filtro
  */
+function xfpdIsPortugueseUi() {
+    const pageLanguage = String(
+        document.documentElement?.getAttribute('lang') ||
+        document.documentElement?.lang ||
+        '',
+    ).trim().toLowerCase();
+
+    if (pageLanguage) {
+        return pageLanguage === 'pt' || pageLanguage.startsWith('pt-');
+    }
+
+    return String(navigator.language || '').toLowerCase().startsWith('pt');
+}
+
 function createWatchedThreadsUI(threads) {
+    const isPortuguese = xfpdIsPortugueseUi();
+    const uiText = isPortuguese ? {
+        advancedOptions: 'Mostrar opções avançadas de watched',
+        serverLabel: 'Servidor de arquivos:',
+        serverAriaLabel: 'Endereço do servidor de arquivos',
+        pauseDownloads: 'Pausar downloads',
+        batchTimeout: 'Tempo máximo por lote:',
+        seconds: 'Segundos',
+        minutes: 'Minutos',
+        hours: 'Horas',
+        concurrency: 'Concorrência (asyncPool):',
+        threadSearchPlaceholder: 'Pesquisar thread...',
+        threadSearchAriaLabel: 'Pesquisar thread',
+        unselectAll: 'Desselecionar Tudo',
+        selectAll: 'Selecionar Tudo',
+        orderLabel: 'Ordem das threads:',
+        recent: 'Mais recentes (padrão)',
+        oldest: 'Mais antigas',
+        filterLabel: 'Filtro dentro da thread:',
+        date: 'Ordenar por data',
+        reactionScore: 'Ordenar por pontuação de reações',
+    } : {
+        advancedOptions: 'Show advanced watched options',
+        serverLabel: 'File server:',
+        serverAriaLabel: 'File server address',
+        pauseDownloads: 'Pause downloads',
+        batchTimeout: 'Maximum time per batch:',
+        seconds: 'Seconds',
+        minutes: 'Minutes',
+        hours: 'Hours',
+        concurrency: 'Concurrency (asyncPool):',
+        threadSearchPlaceholder: 'Search thread...',
+        threadSearchAriaLabel: 'Search thread',
+        unselectAll: 'Unselect All',
+        selectAll: 'Select All',
+        orderLabel: 'Thread order:',
+        recent: 'Most recently updated (default)',
+        oldest: 'Least recently updated',
+        filterLabel: 'Filter within thread:',
+        date: 'Sort by date',
+        reactionScore: 'Sort by reaction score',
+    };
+
     const container = document.createElement('div');
     container.id = 'watched-threads-controls';
     container.style.cssText = `
@@ -10147,7 +10204,7 @@ function createWatchedThreadsUI(threads) {
     controlsVisibilityCheckbox.checked = false;
 
     controlsVisibilityRow.appendChild(controlsVisibilityCheckbox);
-    controlsVisibilityRow.appendChild(document.createTextNode('Mostrar opções avançadas de watched'));
+    controlsVisibilityRow.appendChild(document.createTextNode(uiText.advancedOptions));
 
     const controlsBody = document.createElement('div');
     controlsBody.style.display = 'none';
@@ -10155,13 +10212,13 @@ function createWatchedThreadsUI(threads) {
     const serverRow = document.createElement('div');
     serverRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;';
     const serverLabel = document.createElement('label');
-    serverLabel.textContent = 'Servidor de arquivos:';
+    serverLabel.textContent = uiText.serverLabel;
     serverLabel.style.cssText = 'font-weight: bold;';
     const serverInput = document.createElement('input');
     serverInput.type = 'url';
     serverInput.placeholder = 'http://127.0.0.1:8765';
     serverInput.value = 'http://127.0.0.1:8765';
-    serverInput.setAttribute('aria-label', 'Endereço do servidor de arquivos');
+    serverInput.setAttribute('aria-label', uiText.serverAriaLabel);
     serverInput.style.cssText = 'min-width: 260px; flex: 1; padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px;';
     serverRow.append(serverLabel, serverInput);
 
@@ -10181,13 +10238,13 @@ function createWatchedThreadsUI(threads) {
     });
 
     pauseRow.appendChild(pauseCheckbox);
-    pauseRow.appendChild(document.createTextNode('Pausar downloads'));
+    pauseRow.appendChild(document.createTextNode(uiText.pauseDownloads));
 
     const timeoutRow = document.createElement('div');
     timeoutRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 15px;';
 
     const timeoutLabel = document.createElement('label');
-    timeoutLabel.textContent = 'Tempo máximo por batch:';
+    timeoutLabel.textContent = uiText.batchTimeout;
     timeoutLabel.style.cssText = 'font-weight: bold;';
 
     const timeoutInput = document.createElement('input');
@@ -10200,9 +10257,9 @@ function createWatchedThreadsUI(threads) {
     const timeoutUnitSelect = document.createElement('select');
     timeoutUnitSelect.style.cssText = 'padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
     [
-        { value: 'seconds', text: 'Segundos' },
-        { value: 'minutes', text: 'Minutos' },
-        { value: 'hours', text: 'Horas' },
+        { value: 'seconds', text: uiText.seconds },
+        { value: 'minutes', text: uiText.minutes },
+        { value: 'hours', text: uiText.hours },
     ].forEach(opt => {
         const option = document.createElement('option');
         option.value = opt.value;
@@ -10231,7 +10288,7 @@ function createWatchedThreadsUI(threads) {
     workerConfigRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 15px;';
 
     const asyncConcLabel = document.createElement('label');
-    asyncConcLabel.textContent = 'Concurrency (asyncPool):';
+    asyncConcLabel.textContent = uiText.concurrency;
     asyncConcLabel.style.cssText = 'font-weight: bold;';
 
     const asyncConcInput = document.createElement('input');
@@ -10277,8 +10334,8 @@ function createWatchedThreadsUI(threads) {
 
     const threadSearchInput = document.createElement('input');
     threadSearchInput.type = 'text';
-    threadSearchInput.placeholder = 'Pesquisar thread...';
-    threadSearchInput.setAttribute('aria-label', 'Pesquisar thread');
+    threadSearchInput.placeholder = uiText.threadSearchPlaceholder;
+    threadSearchInput.setAttribute('aria-label', uiText.threadSearchAriaLabel);
     threadSearchInput.style.cssText = 'min-width: 220px; width: min(360px, 100%); padding: 6px 8px; border: 1px solid #ddd; border-radius: 4px;';
 
     threadSelectRow.appendChild(threadSelectLabel);
@@ -10332,7 +10389,7 @@ function createWatchedThreadsUI(threads) {
 
     // Botão Select All / Deselect All
     const threadToggleBtn = document.createElement('button');
-    threadToggleBtn.textContent = 'Unselect All';
+    threadToggleBtn.textContent = uiText.unselectAll;
     threadToggleBtn.style.fontSize = '1.3rem';
     threadToggleBtn.style.padding = '0';
     threadToggleBtn.style.paddingRight = '0px';
@@ -10362,13 +10419,13 @@ function createWatchedThreadsUI(threads) {
         document.querySelectorAll('.thread-checkbox').forEach(cb => {
             cb.checked = allThreadsSelected;
         });
-        threadToggleBtn.textContent = allThreadsSelected ? 'Desselecionar Tudo' : 'Selecionar Tudo';
+        threadToggleBtn.textContent = allThreadsSelected ? uiText.unselectAll : uiText.selectAll;
     });
 
     // ===== SELECT 2: Ordem das Threads =====
     const orderLabel = document.createElement('label');
     orderLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 5px;';
-    orderLabel.textContent = 'Ordem das threads:';
+    orderLabel.textContent = uiText.orderLabel;
 
     const orderSelect = document.createElement('select');
     orderSelect.id = 'thread-order-select';
@@ -10381,8 +10438,8 @@ function createWatchedThreadsUI(threads) {
     `;
 
     const orderOptions = [
-        { value: 'recent', text: 'Recém atualizadas (padrão)' },
-        { value: 'oldest', text: 'Menos atualizadas' }
+        { value: 'recent', text: uiText.recent },
+        { value: 'oldest', text: uiText.oldest }
     ];
 
     orderOptions.forEach(opt => {
@@ -10395,7 +10452,7 @@ function createWatchedThreadsUI(threads) {
     // ===== SELECT 3: Filtro (Sort) =====
     const filterLabel = document.createElement('label');
     filterLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 5px;';
-    filterLabel.textContent = 'Filtro dentro da thread:';
+    filterLabel.textContent = uiText.filterLabel;
 
     const filterSelect = document.createElement('select');
     filterSelect.id = 'thread-filter-select';
@@ -10408,8 +10465,8 @@ function createWatchedThreadsUI(threads) {
     `;
 
     const filterOptions = [
-        { value: 'date', text: 'Sort by date' },
-        { value: 'reaction_score', text: 'Sort by reaction score' }
+        { value: 'date', text: uiText.date },
+        { value: 'reaction_score', text: uiText.reactionScore }
     ];
 
     filterOptions.forEach(opt => {
