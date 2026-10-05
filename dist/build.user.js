@@ -11250,8 +11250,7 @@ let skipCurrentThread = false;
 
                 const serverOnline = await xfpdInitWatchedServerOnce(threadUIControls?.serverInput?.value || '', true);
                 if (!serverOnline) {
-                    alert('Servidor de arquivos indisponível. Verifique o endereço e tente novamente.');
-                    return;
+                    console.warn('[XFPD] Servidor de arquivos indisponível; continuando sem filtro de duplicados.');
                 }
 
                 isDownloadingAll = true;
