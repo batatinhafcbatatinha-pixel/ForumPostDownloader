@@ -10206,6 +10206,7 @@ function createWatchedThreadsUI(threads) {
         applyPageRange: 'Aplicar faixa',
         pageSingular: 'página',
         pagePlural: 'páginas',
+        hideAnimations: 'Esconder animações',
         orderLabel: 'Ordem das threads:',
         recent: 'Mais recentes (padrão)',
         oldest: 'Mais antigas',
@@ -10232,6 +10233,7 @@ function createWatchedThreadsUI(threads) {
         applyPageRange: 'Apply range',
         pageSingular: 'page',
         pagePlural: 'pages',
+        hideAnimations: 'Hide animations',
         orderLabel: 'Thread order:',
         recent: 'Most recently updated (default)',
         oldest: 'Least recently updated',
@@ -10395,6 +10397,16 @@ function createWatchedThreadsUI(threads) {
     threadSelectRow.appendChild(threadSelectLabel);
     threadSelectRow.appendChild(threadSearchInput);
 
+    const hideAnimationsLabel = document.createElement('label');
+    hideAnimationsLabel.style.cssText = 'display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;';
+    const hideAnimationsCheckbox = document.createElement('input');
+    hideAnimationsCheckbox.type = 'checkbox';
+    hideAnimationsCheckbox.checked = true;
+    hideAnimationsCheckbox.setAttribute('aria-label', uiText.hideAnimations);
+    hideAnimationsLabel.appendChild(hideAnimationsCheckbox);
+    hideAnimationsLabel.appendChild(document.createTextNode(uiText.hideAnimations));
+    threadSelectRow.appendChild(hideAnimationsLabel);
+
     const threadCheckboxContainer = document.createElement('div');
     threadCheckboxContainer.id = 'thread-checkboxes';
     threadCheckboxContainer.style.cssText = `
@@ -10432,15 +10444,24 @@ function createWatchedThreadsUI(threads) {
         threadOptionLabels.push(label);
     });
 
-    threadSearchInput.addEventListener('input', () => {
+    const updateThreadVisibility = () => {
         const query = String(threadSearchInput.value || '').trim().toLowerCase();
 
         threadOptionLabels.forEach(label => {
             const title = String(label.dataset.threadTitle || '');
-            const show = !query || title.includes(query);
+            const animation = isAnimationPost(title);
+            const checkbox = label.querySelector('.thread-checkbox');
+            const show = (!query || title.includes(query)) && (!hideAnimationsCheckbox.checked || !animation);
+            if (hideAnimationsCheckbox.checked && animation && checkbox) {
+                checkbox.checked = false;
+            }
             label.style.display = show ? 'block' : 'none';
         });
-    });
+    };
+
+    threadSearchInput.addEventListener('input', updateThreadVisibility);
+    hideAnimationsCheckbox.addEventListener('change', updateThreadVisibility);
+    updateThreadVisibility();
 
     // Botão Select All / Deselect All
     const threadToggleBtn = document.createElement('button');
