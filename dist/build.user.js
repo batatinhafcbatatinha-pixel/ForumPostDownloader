@@ -1510,6 +1510,33 @@ Array.prototype.unique = function (cb) {
     return h.unique(this, cb);
 };
 
+const canonicalizeThreadTitle = title => {
+    const normalized = String(title || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const lower = normalized.toLowerCase();
+    const aliases = [
+        [/^taina costa$/i, 'Taina Costa'],
+        [/^sza(?:\s*-\s*solana rowe)?$/i, 'SZA'],
+        [/^cleo pires$/i, 'Cleo Pires'],
+        [/^cinthia cruz(?:\s+@[\w.-]+)?$/i, 'Cinthia Cruz'],
+        [/^breckie hill(?:\s*\([^)]*\))?$/i, 'Breckie Hill'],
+        [/^(?:rebeca|beca) barreto$/i, 'Beca Barreto'],
+        [/^halle bailey(?:\s+actress)?(?:\s*\([^)]*\))?$/i, 'Halle Bailey'],
+    ];
+
+    const alias = aliases.find(([pattern]) => pattern.test(normalized));
+    if (alias) return alias[1];
+
+    return normalized
+        .replace(/\s+@[a-z0-9_.-]+$/i, '')
+        .replace(/\s*\([^)]*\)\s*$/g, '')
+        .replace(/\s*\[[^\]]*\]\s*$/g, '')
+        .trim() || lower;
+};
+
 const parsers = {
     thread: {
         /**
@@ -1519,7 +1546,8 @@ const parsers = {
             const emojisPattern =
                 /[\u{1f300}-\u{1f5ff}\u{1f900}-\u{1f9ff}\u{1f600}-\u{1f64f}\u{1f680}-\u{1f6ff}\u{2600}-\u{26ff}\u{2700}-\u{27bf}\u{1f191}-\u{1f251}\u{1f004}\u{1f0cf}\u{1f170}-\u{1f171}\u{1f17e}-\u{1f17f}\u{1f18e}\u{3030}\u{2b50}\u{2b55}\u{2934}-\u{2935}\u{2b05}-\u{2b07}\u{2b1b}-\u{2b1c}\u{3297}\u{3299}\u{303d}\u{00a9}\u{00ae}\u{2122}\u{23f3}\u{24c2}\u{23e9}-\u{23ef}\u{25b6}\u{23f8}-\u{23fa}]/gu;
             let parsed = h.stripTags(['a', 'span'], h.element('.p-title-value').innerHTML).replace('/\n/g', '');
-            return !settings.naming.allowEmojis ? parsed.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim() : parsed.trim();
+            const cleaned = !settings.naming.allowEmojis ? parsed.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim() : parsed.trim();
+            return canonicalizeThreadTitle(cleaned);
         },
         /**
      *
@@ -10020,6 +10048,20 @@ async function getAllWatchedThreads() {
 
                     if (!title) return null;
 
+                    const item = a.closest('.structItem');
+                    let pageCount = 1;
+                    const pageNumbers = [...(item || a.parentElement || document.createElement('div')).querySelectorAll('a[href*="page-"]')]
+                        .map(link => Number(/page-(\d+)/i.exec(link.getAttribute('href') || '')?.[1]))
+                        .filter(Number.isFinite);
+                    if (pageNumbers.length) {
+                        pageCount = Math.max(...pageNumbers);
+                    }
+                    const simplePageText = (item?.querySelector('.pageNavSimple-el, .pageNavSimple-el--current')?.textContent || '').trim();
+                    const simplePageMatch = /(?:of|de|\/)\s*(\d+)/i.exec(simplePageText);
+                    if (simplePageMatch) {
+                        pageCount = Math.max(pageCount, Number(simplePageMatch[1]));
+                    }
+
                     url = url
                         .replace(/\/unread.*$/, '')
                         .replace(/\/page-\d+.*$/, '')
@@ -10031,7 +10073,7 @@ async function getAllWatchedThreads() {
                         url += '/';
                     }
 
-                    return [url, { url, title }];
+                    return [url, { url, title, pageCount }];
                 } catch {
                     return null;
                 }
@@ -10158,6 +10200,12 @@ function createWatchedThreadsUI(threads) {
         threadSearchAriaLabel: 'Pesquisar thread',
         unselectAll: 'Desselecionar Tudo',
         selectAll: 'Selecionar Tudo',
+        pageRangeLabel: 'Selecionar por quantidade de páginas:',
+        pageFrom: 'De',
+        pageTo: 'Até',
+        applyPageRange: 'Aplicar faixa',
+        pageSingular: 'página',
+        pagePlural: 'páginas',
         orderLabel: 'Ordem das threads:',
         recent: 'Mais recentes (padrão)',
         oldest: 'Mais antigas',
@@ -10178,6 +10226,12 @@ function createWatchedThreadsUI(threads) {
         threadSearchAriaLabel: 'Search thread',
         unselectAll: 'Unselect All',
         selectAll: 'Select All',
+        pageRangeLabel: 'Select by page count:',
+        pageFrom: 'From',
+        pageTo: 'To',
+        applyPageRange: 'Apply range',
+        pageSingular: 'page',
+        pagePlural: 'pages',
         orderLabel: 'Thread order:',
         recent: 'Most recently updated (default)',
         oldest: 'Least recently updated',
@@ -10370,8 +10424,9 @@ function createWatchedThreadsUI(threads) {
         const threadTitle = String(thread.title || 'Sem título');
 
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(threadTitle));
+        label.appendChild(document.createTextNode(`${threadTitle} (${thread.pageCount || 1} ${thread.pageCount === 1 ? uiText.pageSingular : uiText.pagePlural})`));
         label.dataset.threadTitle = threadTitle.toLowerCase();
+        label.dataset.pageCount = String(thread.pageCount || 1);
 
         threadCheckboxContainer.appendChild(label);
         threadOptionLabels.push(label);
@@ -10422,7 +10477,46 @@ function createWatchedThreadsUI(threads) {
         threadToggleBtn.textContent = allThreadsSelected ? uiText.unselectAll : uiText.selectAll;
     });
 
-    // ===== SELECT 2: Ordem das Threads =====
+        const pageRangeRow = document.createElement('div');
+        pageRangeRow.style.cssText = 'display: flex; align-items: center; gap: 8px; margin: 12px 0 15px; flex-wrap: wrap;';
+        const pageRangeLabel = document.createElement('label');
+        pageRangeLabel.textContent = uiText.pageRangeLabel;
+        pageRangeLabel.style.fontWeight = 'bold';
+        const pageFromInput = document.createElement('input');
+        pageFromInput.type = 'number';
+        pageFromInput.min = '1';
+        pageFromInput.step = '1';
+        pageFromInput.placeholder = uiText.pageFrom;
+        pageFromInput.setAttribute('aria-label', uiText.pageFrom);
+        pageFromInput.style.cssText = 'width: 70px; padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+        const pageToInput = document.createElement('input');
+        pageToInput.type = 'number';
+        pageToInput.min = '1';
+        pageToInput.step = '1';
+        pageToInput.placeholder = uiText.pageTo;
+        pageToInput.setAttribute('aria-label', uiText.pageTo);
+        pageToInput.style.cssText = 'width: 70px; padding: 6px; border: 1px solid #ddd; border-radius: 4px;';
+        const applyPageRangeBtn = document.createElement('button');
+        applyPageRangeBtn.type = 'button';
+        applyPageRangeBtn.textContent = uiText.applyPageRange;
+        applyPageRangeBtn.style.cssText = 'padding: 6px 8px; border: 1px solid rgba(255,255,255,0.12); background: #383c42; color: #287ABD; cursor: pointer;';
+
+        applyPageRangeBtn.addEventListener('click', () => {
+            const from = Math.max(1, Number(pageFromInput.value) || 1);
+            const to = Math.max(from, Number(pageToInput.value) || from);
+            pageFromInput.value = String(from);
+            pageToInput.value = String(to);
+            document.querySelectorAll('.thread-checkbox').forEach(checkbox => {
+                const pageCount = Number(checkbox.closest('label')?.dataset.pageCount || 1);
+                checkbox.checked = pageCount >= from && pageCount <= to;
+            });
+            allThreadsSelected = [...document.querySelectorAll('.thread-checkbox')].every(checkbox => checkbox.checked);
+            threadToggleBtn.textContent = allThreadsSelected ? uiText.unselectAll : uiText.selectAll;
+        });
+
+        pageRangeRow.append(pageRangeLabel, pageFromInput, pageToInput, applyPageRangeBtn);
+
+        // ===== SELECT 2: Ordem das Threads =====
     const orderLabel = document.createElement('label');
     orderLabel.style.cssText = 'display: block; font-weight: bold; margin-bottom: 5px;';
     orderLabel.textContent = uiText.orderLabel;
@@ -10484,6 +10578,7 @@ function createWatchedThreadsUI(threads) {
     controlsBody.appendChild(threadSelectRow);
     controlsBody.appendChild(threadCheckboxContainer);
     controlsBody.appendChild(threadToggleBtn);
+    controlsBody.appendChild(pageRangeRow);
     controlsBody.appendChild(orderLabel);
     controlsBody.appendChild(orderSelect);
     controlsBody.appendChild(filterLabel);
@@ -10796,6 +10891,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
             threadTitle = !settings.naming.allowEmojis
                 ? raw.replace(emojisPattern, settings.naming.invalidCharSubstitute).trim()
                 : raw;
+            threadTitle = canonicalizeThreadTitle(threadTitle);
         }
 
         for (let page = lastPage; page >= 1; page--) {
@@ -11124,6 +11220,67 @@ async function downloadAllPagesOfCurrentThread() {
 
 const parsedPosts = [];
 const selectedPosts = [];
+const animationFilterTerms = [
+    'naruto',
+    'dragon ball',
+    'lara croft',
+    'cyberpunk',
+    'stellar blade',
+    'familia sacana',
+    'super mario',
+    'resident evil',
+    'resident evill',
+    'horizon zero dawn',
+    'celebrity 3d',
+    'marvel comics',
+    'marvel rivals',
+    'dc comics',
+    'dc rule34',
+    'comic book hotties',
+    'come to brazil',
+    'animated brazilians',
+    'mushoku',
+    'one piece',
+    'gta',
+    'grand theft auto',
+    'dreamworks animation',
+    'shrek',
+    'street fighter',
+    'pixar',
+    'scooby-doo',
+    'metal gear',
+    'dispatch',
+    'simpsons',
+    'star wars',
+    'apex legends',
+    'mortal kombat',
+    'spiderman',
+    'spider-man',
+    'gwen stacy',
+    'nier automata',
+    'tomb raider',
+    'superman',
+    'spider gwen',
+    'rick and morty',
+    'bleach',
+    'boruto',
+    'batman',
+    'family guy',
+];
+
+const normalizeAnimationFilterText = text =>
+    text
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[-_/]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const isAnimationPost = text => {
+    const normalizedText = normalizeAnimationFilterText(text || '');
+    return animationFilterTerms.some(term => normalizedText.includes(normalizeAnimationFilterText(term)));
+};
 let isDownloadingAll = false;
 let skipCurrentThread = false;
 
@@ -11581,15 +11738,16 @@ let skipCurrentThread = false;
             const color = ui.getTooltipBackgroundColor();
 
             let html = ui.forms.createCheckbox('config-toggle-all-posts', settings.ui.checkboxes.toggleAllCheckboxLabel, false);
+            html += ui.forms.createCheckbox('config-filter-animations', 'Desmarcar animações', true);
 
             parsedPosts
                 .filter(p => p.parsedHosts.length)
                 .forEach(post => {
                     const { postId, postNumber, textContent } = post.parsedPost;
-
-                    selectedPosts.push({ post, enabled: false });
-
                     const threadTitle = parsers.thread.parseTitle();
+                    const animationPost = isAnimationPost(`${threadTitle} ${textContent}`);
+
+                    selectedPosts.push({ post, enabled: false, animationPost });
 
                     let defaultPostContent = textContent.trim().replace('â€‹', '');
 
@@ -11631,7 +11789,9 @@ let skipCurrentThread = false;
 
                                     const checkAllCB = h.element('#config-toggle-all-posts');
                                     if (checkAllCB) {
-                                        checkAllCB.checked = selectedPosts.filter(s => s.enabled).length === parsedPosts.length;
+                                        const filterAnimationsCB = h.element('#config-filter-animations');
+                                        const selectablePosts = selectedPosts.filter(s => !filterAnimationsCB.checked || !s.animationPost);
+                                        checkAllCB.checked = selectablePosts.length > 0 && selectablePosts.every(s => s.enabled);
                                     }
                                 });
                             }
@@ -11640,25 +11800,36 @@ let skipCurrentThread = false;
                     const toggleAllCB = h.element('#config-toggle-all-posts');
                     if (toggleAllCB && toggleAllCB.dataset.xfpdBound !== '1') {
                         toggleAllCB.dataset.xfpdBound = '1';
-                        toggleAllCB.addEventListener('change', async e => {
+                        toggleAllCB.addEventListener('change', e => {
                             e.preventDefault();
 
+                            const filterAnimationsCB = h.element('#config-filter-animations');
+                            const selectablePosts = selectedPosts.filter(s => !filterAnimationsCB.checked || !s.animationPost);
                             const checked = e.target.checked;
 
-                            const postCheckboxes = parsedPosts
-                                .filter(p => p.parsedHosts.length)
-                                .map(p => p.parsedPost)
-                                .map(p => h.element(`#config-download-post-${p.postId}`))
-                                .filter(Boolean);
+                            selectablePosts.forEach(selectedPost => {
+                                const postCheckbox = h.element(`#config-download-post-${selectedPost.post.parsedPost.postId}`);
+                                if (postCheckbox && postCheckbox.checked !== checked) {
+                                    postCheckbox.click();
+                                }
+                            });
+                        });
+                    }
 
-                            const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
-                            const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
+                    const filterAnimationsCB = h.element('#config-filter-animations');
+                    if (filterAnimationsCB && filterAnimationsCB.dataset.xfpdBound !== '1') {
+                        filterAnimationsCB.dataset.xfpdBound = '1';
+                        filterAnimationsCB.addEventListener('change', e => {
+                            e.preventDefault();
 
-                            if (checked) {
-                                unCheckedPostCheckboxes.forEach(c => c.click());
-                            } else {
-                                checkedPostCheckboxes.forEach(c => c.click());
-                            }
+                            selectedPosts
+                                .filter(selectedPost => selectedPost.animationPost)
+                                .forEach(selectedPost => {
+                                    const postCheckbox = h.element(`#config-download-post-${selectedPost.post.parsedPost.postId}`);
+                                    if (postCheckbox && postCheckbox.checked === e.target.checked) {
+                                        postCheckbox.click();
+                                    }
+                                });
                         });
                     }
                 },

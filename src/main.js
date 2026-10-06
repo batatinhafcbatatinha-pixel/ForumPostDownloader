@@ -2027,6 +2027,67 @@ const registerPostReaction = postFooter => {
 
 const parsedPosts = [];
 const selectedPosts = [];
+const animationFilterTerms = [
+  'naruto',
+  'dragon ball',
+  'lara croft',
+  'cyberpunk',
+  'stellar blade',
+  'familia sacana',
+  'super mario',
+  'resident evil',
+  'resident evill',
+  'horizon zero dawn',
+  'celebrity 3d',
+  'marvel comics',
+  'marvel rivals',
+  'dc comics',
+  'dc rule34',
+  'comic book hotties',
+  'come to brazil',
+  'animated brazilians',
+  'mushoku',
+  'one piece',
+  'gta',
+  'grand theft auto',
+  'dreamworks animation',
+  'shrek',
+  'street fighter',
+  'pixar',
+  'scooby-doo',
+  'metal gear',
+  'dispatch',
+  'simpsons',
+  'star wars',
+  'apex legends',
+  'mortal kombat',
+  'spiderman',
+  'spider-man',
+  'gwen stacy',
+  'nier automata',
+  'tomb raider',
+  'superman',
+  'spider gwen',
+  'rick and morty',
+  'bleach',
+  'boruto',
+  'batman',
+  'family guy',
+];
+
+const normalizeAnimationFilterText = text =>
+  text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[-_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const isAnimationPost = text => {
+  const normalizedText = normalizeAnimationFilterText(text || '');
+  return animationFilterTerms.some(term => normalizedText.includes(normalizeAnimationFilterText(term)));
+};
 
 (function () {
   window.addEventListener('beforeunload', e => {
@@ -2196,15 +2257,16 @@ const selectedPosts = [];
       const color = ui.getTooltipBackgroundColor();
 
       let html = ui.forms.createCheckbox('config-toggle-all-posts', settings.ui.checkboxes.toggleAllCheckboxLabel, false);
+      html += ui.forms.createCheckbox('config-filter-animations', 'Desmarcar animações', true);
 
       parsedPosts
         .filter(p => p.parsedHosts.length)
         .forEach(post => {
           const { postId, postNumber, textContent } = post.parsedPost;
-
-          selectedPosts.push({ post, enabled: false });
-
           const threadTitle = parsers.thread.parseTitle();
+          const animationPost = isAnimationPost(`${threadTitle} ${textContent}`);
+
+          selectedPosts.push({ post, enabled: false, animationPost });
 
           let defaultPostContent = textContent.trim().replace('​', '');
 
@@ -2236,29 +2298,46 @@ const selectedPosts = [];
                 selectedPost.enabled = e.target.checked;
 
                 const checkAllCB = h.element('#config-toggle-all-posts');
-                checkAllCB.checked = selectedPosts.filter(s => s.enabled).length === parsedPosts.length;
-              });
-
-              h.element('#config-toggle-all-posts').addEventListener('change', async e => {
-                e.preventDefault();
-
-                const checked = e.target.checked;
-
-                const postCheckboxes = parsedPosts
-                  .filter(p => p.parsedHosts.length)
-                  .map(p => p.parsedPost)
-                  .flatMap(p => h.element(`#config-download-post-${p.postId}`));
-
-                const checkedPostCheckboxes = postCheckboxes.filter(e => e.checked);
-                const unCheckedPostCheckboxes = postCheckboxes.filter(e => !e.checked);
-
-                if (checked) {
-                  unCheckedPostCheckboxes.forEach(c => c.click());
-                } else {
-                  checkedPostCheckboxes.forEach(c => c.click());
-                }
+                const filterAnimationsCB = h.element('#config-filter-animations');
+                const selectablePosts = selectedPosts.filter(s => !filterAnimationsCB.checked || !s.animationPost);
+                checkAllCB.checked = selectablePosts.length > 0 && selectablePosts.every(s => s.enabled);
               });
             });
+
+        const toggleAllCB = h.element('#config-toggle-all-posts');
+        if (toggleAllCB && toggleAllCB.dataset.xfpdBound !== '1') {
+          toggleAllCB.dataset.xfpdBound = '1';
+          toggleAllCB.addEventListener('change', e => {
+            e.preventDefault();
+
+            const filterAnimationsCB = h.element('#config-filter-animations');
+            const selectablePosts = selectedPosts.filter(s => !filterAnimationsCB.checked || !s.animationPost);
+            const checked = e.target.checked;
+
+            selectablePosts.forEach(selectedPost => {
+              const postCheckbox = h.element(`#config-download-post-${selectedPost.post.parsedPost.postId}`);
+              if (postCheckbox && postCheckbox.checked !== checked) {
+                postCheckbox.click();
+              }
+            });
+          });
+        }
+
+        const filterAnimationsCB = h.element('#config-filter-animations');
+        if (filterAnimationsCB && filterAnimationsCB.dataset.xfpdBound !== '1') {
+          filterAnimationsCB.dataset.xfpdBound = '1';
+          filterAnimationsCB.addEventListener('change', e => {
+            e.preventDefault();
+
+            selectedPosts
+              .filter(selectedPost => selectedPost.animationPost)
+              .forEach(selectedPost => {
+                const postCheckbox = h.element(`#config-download-post-${selectedPost.post.parsedPost.postId}`);
+                if (postCheckbox && postCheckbox.checked === e.target.checked) {
+                  postCheckbox.click();
+                }
+              });
+          });
         },
       });
     }
