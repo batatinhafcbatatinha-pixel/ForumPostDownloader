@@ -586,7 +586,7 @@ let gbxRequestId = 0;
 let gbxBridgeChain = Promise.resolve();
 
 const goonboxBridgePathAllowed = path =>
-    /^\/api\/(?:images\/[A-Za-z0-9_-]{1,64}|albums\/[A-Za-z0-9._~-]{1,128}\/images\?page=\d{1,4})$/.test(String(path || ''));
+    /^\/api\/(?:images\/[A-Za-z0-9_.-]{1,128}|albums\/[A-Za-z0-9._~-]{1,128}\/images\?page=\d{1,4})$/.test(String(path || ''));
 
 const gbxGet = (key, fallback = '') => {
     try { return GM_getValue(key, fallback); } catch (e) { return fallback; }
@@ -1522,7 +1522,7 @@ const canonicalizeThreadTitle = title => {
         [/^georgina rodriguez$/i, 'Georgina Rodríguez'],
         [/^taina costa$/i, 'Tainá Costa'],
         [/^sza(?:\s*-\s*solana rowe)?$/i, 'SZA'],
-        [/^cleo pires$/i, 'Cléo Pires'],
+        [/^cleo pires$/i, 'Cleo Pires'],
         [/^cinthia cruz(?:\s+@[\w.-]+)?$/i, 'Cinthia Cruz'],
         [/^breckie hill(?:\s*\([^)]*\))?$/i, 'Breckie Hill'],
         [/^(?:rebeca|beca) barreto$/i, 'Beca Barreto'],
@@ -1537,19 +1537,19 @@ const canonicalizeThreadTitle = title => {
         [/^mel maia|melissa mel maia$/i, 'Mel Maia'],
         [/^khloe kardashian$/i, 'Khloe Kardashian'],
         [/^carolina portaluppi|carol portaluppi$/i, 'Carolina Portaluppi'],
-        [/^mayaguod16|maya goudeseune$/i, 'MayaGuod16'],
+        [/^mayaguod16|maya goudeseune$/i, 'Maya Goudeseune'],
         [/^vivi wanderley$/i, 'Vivi Wanderley'],
         [/^iza(?: cantora)?$/i, 'IZA'],
         [/^tracee ellis ross$/i, 'Tracee Ellis Ross'],
         [/^laauura(?:model| model)?|laauura_1$/i, 'Laauura'],
         [/^doechii(?: tde artist)?$/i, 'Doechii'],
-        [/^fernanda lacerda|mendigata$/i, 'Fernanda Lacerda'],
+        [/^fernanda lacerda|mendigata$/i, 'Mendigata'],
         [/^carol dias|panicat$/i, 'Carol Dias'],
         [/^flay|flayslane bbb20$/i, 'Flay'],
         [/^gwen stacy|spider[- ]gwen$/i, 'Gwen Stacy'],
-        [/^valeska popozuda|valesca popozuda$/i, 'Valeska Popozuda'],
+        [/^valeska popozuda|valesca popozuda$/i, 'Valesca Popozuda'],
         [/^barbie ferreira$/i, 'Barbie Ferreira'],
-        [/^andressa soares|mulher melancia$/i, 'Andressa Soares'],
+        [/^andressa soares|mulher melancia$/i, 'Mulher Melancia'],
         [/^priscila evellyn$/i, 'Priscila Evellyn'],
         [/^barbara labres$/i, 'Bárbara Labres'],
         [/^rafa kalimann$/i, 'Rafa Kalimann'],
@@ -1558,10 +1558,10 @@ const canonicalizeThreadTitle = title => {
         [/^stellar blade$/i, 'Stellar Blade'],
         [/^street fighter$/i, 'Street Fighter'],
         [/^karoline lima$/i, 'Karoline Lima'],
-        [/^metal gear solid|quiet$/i, 'Metal Gear Solid'],
-        [/^dreamworks animation|fiona from shrek$/i, 'Dreamworks Animation'],
+        [/^metal gear solid|quiet$/i, 'Quiet'],
+        [/^dreamworks animation|fiona from shrek$/i, 'Dreamworks'],
         [/^lara croft|tomb raider$/i, 'Lara Croft'],
-        [/^dc rule34|dc comics$/i, 'DC Rule34'],
+        [/^dc rule34|dc comics$/i, 'DC'],
         [/^naruto animations - aniflow|naruto(?: \/ boruto)?$/i, 'Naruto'],
         [/^anya taylor[- ]joy$/i, 'Anya Taylor-Joy'],
         [/^nicole .*coco.*austin$/i, 'Nicole Coco Austin'],
@@ -1570,13 +1570,13 @@ const canonicalizeThreadTitle = title => {
         [/^ellen rocche$/i, 'Ellen Rocche'],
         [/^flavia alessandra$/i, 'Flávia Alessandra'],
         [/^cinna(?:brit)?$/i, 'Cinna'],
-        [/^bianca andrade|boca rosa$/i, 'Bianca Andrade'],
+        [/^bianca andrade|boca rosa$/i, 'Boca Rosa'],
         [/^ana paula minerato|apminerato$/i, 'Ana Paula Minerato'],
         [/^luisa sonza$/i, 'Luísa Sonza'],
         [/^rosalia|la rosalia$/i, 'Rosalía'],
         [/^aryna sabalenka|arina sobolenko$/i, 'Aryna Sabalenka'],
         [/^dina belenkaya|thebelenkaya$/i, 'Dina Belenkaya'],
-        [/^familia sacana|familia sacana e outros$/i, 'Família sacana animações'],
+        [/^familia sacana|familia sacana e outros$/i, 'Família Sacana'],
         [/^alessandra espanha|alessandraespanha$/i, 'Alessandra Espanha'],
         [/^juliana salimeni$/i, 'Juliana Salimeni'],
         [/^adele exarchopoulos$/i, 'Adèle Exarchopoulos'],
@@ -1589,7 +1589,7 @@ const canonicalizeThreadTitle = title => {
         [/^winona ryder$/i, 'Winona Ryder'],
         [/^lindsay capuano$/i, 'Lindsay Capuano'],
         [/^agatha sa$/i, 'Agatha Sá'],
-        [/^rick and morty - pleasure trip [12]$/i, 'Rick and Morty - Pleasure Trip 2'],
+        [/^rick and morty - pleasure trip [12]$/i, 'Rick and Morty'],
         [/^dragon ball(?: z)?$/i, 'Dragon Ball'],
         [/^india love (?:& crystal westbrooks|westbrooks)$/i, 'India Love & Crystal Westbrooks'],
         [/^lara juca$/i, 'Lara Jucá'],
@@ -2904,10 +2904,17 @@ const resolvers = [
     [
         [/goonbox\.cr\/img\//i],
         async (url, httpClient) => {
-            const id = String(url || '').split('/').pop().split('?')[0];
+            const rawId = String(url || '').split('/').pop().split('?')[0];
+            const id = rawId.includes('.') ? rawId.split('.').pop() : rawId;
             if (!id) return null;
             try {
-                const data = await goonboxApiJson(httpClient, `/api/images/${encodeURIComponent(id)}`, url, null);
+                let data = await goonboxApiJson(httpClient, `/api/images/${encodeURIComponent(id)}`, url, null);
+                if (data && data.redirect && typeof data.redirect === 'string') {
+                    const redirId = data.redirect.split('/').pop().split('?')[0];
+                    if (redirId && redirId !== id) {
+                        data = await goonboxApiJson(httpClient, `/api/images/${encodeURIComponent(redirId)}`, url, null);
+                    }
+                }
                 const findOriginal = value => {
                     if (!value || typeof value !== 'object') return null;
                     if (Array.isArray(value)) {
@@ -2926,9 +2933,9 @@ const resolvers = [
                     }
                     return null;
                 };
-                return findOriginal(data) || goonboxThumbByUrl.get(String(url).replace(/\?.*/, '').replace(/\/$/, '')) || url;
+                return findOriginal(data) || goonboxThumbByUrl.get(String(url).replace(/\?.*/, '').replace(/\/$/, '')) || null;
             } catch (e) {
-                return goonboxThumbByUrl.get(String(url).replace(/\?.*/, '').replace(/\/$/, '')) || url;
+                return goonboxThumbByUrl.get(String(url).replace(/\?.*/, '').replace(/\/$/, '')) || null;
             }
         },
     ],
@@ -5113,7 +5120,7 @@ const resolvers = [
                     slugs = extractSlugs(html);
                 }
 
-                if (!slugs.length) return url;
+                if (!slugs.length) return null;
 
                 const pickTitle = (src) => {
                     const m1 = src.match(/property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
@@ -5200,11 +5207,11 @@ const resolvers = [
                     resolved.push(direct);
                 }
 
-                if (!resolved.length) return url;
+                if (!resolved.length) return null;
 
                 return { folderName, resolved };
             } catch (e) {
-                return url;
+                return null;
             }
         },
     ],
@@ -5554,9 +5561,9 @@ const resolvers = [
 
                 directUrl = await fetchInfo();
                 if (!directUrl) directUrl = await fetchInfo();
-                return directUrl || url;
+                return directUrl || null;
             } catch (e) {
-                return url;
+                return null;
             }
         },
     ],
@@ -7693,6 +7700,34 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             // Windows-safe filenames for GM_download (Chrome is stricter than Firefox).
             const WIN_ILLEGAL_RE = /[<>:"\/\\|?*\x00-\x1F]/g;
 
+            // OS/browser download name limits. Windows MAX_PATH is ~260 chars and the browser
+            // prepends its download directory, so we keep each segment and the whole relative
+            // path well below that limit to avoid GM_download "not_succeeded" errors.
+            const MAX_SEGMENT_LEN = 140;
+            const MAX_REL_PATH_LEN = 200;
+
+            // Truncate a single path segment while preserving its file extension.
+            const truncateNameKeepingExt = (name, max = MAX_SEGMENT_LEN) => {
+                const s = String(name || '');
+                if (s.length <= max) return s;
+                const m = /^(.*?)(\.[A-Za-z0-9]{1,8})$/.exec(s);
+                const ext = m ? m[2] : '';
+                const stem = m ? m[1] : s;
+                const room = Math.max(1, max - ext.length);
+                return stem.slice(0, room).replace(/[. ]+$/g, '') + ext;
+            };
+
+            // Clamp a relative download path ("Folder/very-long-name.ext") to a safe length,
+            // truncating only the file name part.
+            const clampRelPath = (rel, max = MAX_REL_PATH_LEN) => {
+                const parts = String(rel || '').split('/').filter(Boolean);
+                if (parts.length <= 1) return truncateNameKeepingExt(parts[0] || '', max);
+                const file = parts.pop();
+                const dir = parts.join('/');
+                const allowed = Math.max(24, max - dir.length - 1);
+                return `${dir}/${truncateNameKeepingExt(file, allowed)}`;
+            };
+
             const sanitizeWinSegment = (s) => {
                 const sub = (settings && settings.naming && settings.naming.invalidCharSubstitute) ? settings.naming.invalidCharSubstitute : '_';
                 let out = String(s || '');
@@ -7716,6 +7751,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (!out) out = '_';
                 // Avoid reserved device names
                 if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(out)) out = '_' + out;
+                // Keep the segment within OS/browser limits (preserve extension).
+                out = truncateNameKeepingExt(out, MAX_SEGMENT_LEN);
                 return out;
             };
 
@@ -8063,7 +8100,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 const isGoFile = isGoFileUrl(url);
                 const isPixeldrain = isPixeldrainUrl(url);
                 const isTurbo = isTurboUrl(url);
-                const isCyberdrop = String(host || '').toLowerCase() === 'cyberdrop';
+                const isCyberdrop = String((host && host.name) || host || '').toLowerCase().startsWith('cyberdrop') ||
+                    /(?:^|\.)cyberdrop\.[a-z]{2,}/i.test(String(url || '')) ||
+                    /(?:^|\.)cyberdrop\.[a-z]{2,}/i.test(String(original || ''));
                 const isBunkr = String((host && host.name) || '').toLowerCase() === 'bunkr' || /bunkr/i.test(String(url || '')) || /bunkr/i.test(String(original || ''));
                 const isFilester = String((host && host.name) || '').toLowerCase() === 'filester' || /(?:^|\.)filester\.me/i.test(String(url || ''));
 
@@ -8421,8 +8460,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         fn = sanitizeWinPath(fn);
                         fn = ensureUniquePath(fn);
                         basename = h.basename(fn);
-                        const saveAsFF = `${title} #${postNumber} - ${ensureUniqueFlatName(fn.replace(/\//g, ' - '))}`;
-                        const saveAsPath = `${title}/${fn}`;
+                        const saveAsFF = clampRelPath(`${title} #${postNumber} - ${ensureUniqueFlatName(fn.replace(/\//g, ' - '))}`);
+                        const saveAsPath = clampRelPath(`${title}/${fn}`);
                         // Try folder path on all browsers first; use flat fallback only if needed.
                         const saveAsName = saveAsPath;
 
@@ -8477,27 +8516,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                             return;
                                         }
 
-                                        // Prefer saveAs for blob: URLs (GM_download often fails with not_whitelisted for blob:)
-                                        try {
-                                            if (isFF) {
-                                                saveAs(blob, saveAsName);
-                                            } else {
-                                                // Chrome/TM: try saveAs first for reliability, then fallback to GM_download(blob:)
-                                                saveAs(blob, saveAsName);
-                                            }
-
-                                            completed++;
-                                            settleBatchResource(resource);
-                                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
-                                            h.ui.setElProps(statusLabel, { color: '#2d9053' });
-                                            h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
-                                            return;
-                                        } catch (e) {
-                                            console.log('[Pixeldrain list ZIP debug] saveAs failed, trying GM_download(blob:)', e);
-                                        }
-
-                                        const blobUrl = URL.createObjectURL(blob);
-                                        // try { console.log('[XFPD IMG TRACE] blob created for', url, { blobSize }); } catch (e) { }
+                                        const blobUrl = URL.createObjectURL(blob) + '#' + encodeURIComponent(basename);
                                         GM_download({
                                             url: blobUrl,
                                             name: saveAsName,
@@ -8505,21 +8524,39 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                                 try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 completed++;
                                                 settleBatchResource(resource);
-                                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ✔ ${ellipsedUrl}`);
                                                 h.ui.setElProps(statusLabel, { color: '#2d9053' });
                                                 h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
                                             },
                                             onerror: err => {
                                                 try { URL.revokeObjectURL(blobUrl); } catch (e) { }
-                                                log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) failed (${(err && err.error) || 'unknown'})::: ${url}`, postNumber);
-                                                console.log('[Pixeldrain list ZIP debug] GM_download(blob:) error', err);
-                                                completed++;
-                                                settleBatchResource(resource);
+                                                log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) failed (${(err && err.error) || 'unknown'}) -> trying direct URL::: ${url}`, postNumber);
+                                                const directZipUrl = url + (url.includes('?') ? '&' : '?') + 'dummy=' + encodeURIComponent(basename);
+                                                GM_download({
+                                                    url: directZipUrl,
+                                                    name: saveAsName,
+                                                    onload: () => {
+                                                        completed++;
+                                                        settleBatchResource(resource);
+                                                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ✔ ${ellipsedUrl}`);
+                                                        h.ui.setElProps(statusLabel, { color: '#2d9053' });
+                                                        h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
+                                                    },
+                                                    onerror: err2 => {
+                                                        log.post.error(postId, `::Pixeldrain list ZIP direct GM_download failed (${(err2 && err2.error) || 'unknown'})::: ${url}`, postNumber);
+                                                        completed++;
+                                                        settleBatchResource(resource);
+                                                    },
+                                                    ontimeout: err2 => {
+                                                        log.post.error(postId, `::Pixeldrain list ZIP direct GM_download timed out::: ${url}`, postNumber);
+                                                        completed++;
+                                                        settleBatchResource(resource);
+                                                    },
+                                                });
                                             },
                                             ontimeout: err => {
                                                 try { URL.revokeObjectURL(blobUrl); } catch (e) { }
                                                 log.post.error(postId, `::Pixeldrain list ZIP GM_download(blob:) timed out::: ${url}`, postNumber);
-                                                console.log('[Pixeldrain list ZIP debug] GM_download(blob:) timeout', err);
                                                 completed++;
                                                 settleBatchResource(resource);
                                             },
@@ -9174,6 +9211,50 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             }
                         }
 
+                        // General check across ALL hosts: reject bad HTTP status, HTML responses, or empty blobs.
+                        const genCt = headerValue(response.responseHeaders || '', 'content-type').toLowerCase();
+                        const genStatus = Number(response.status || 0);
+                        const genBlob = response.response;
+                        const genSize = genBlob && typeof genBlob.size === 'number' ? genBlob.size : 0;
+                        const genIsHtml = /text\/html|application\/xhtml\+xml|text\/xml/i.test(genCt);
+                        const genBadStatus = genStatus >= 400 || genStatus === 0;
+
+                        let genBlobLooksLikeHtml = false;
+                        if (!genIsHtml && !genBadStatus && genSize > 0 && genSize <= 32768) {
+                            try {
+                                const t = await genBlob.text();
+                                const head = String(t || '').slice(0, 2048).toLowerCase();
+                                genBlobLooksLikeHtml =
+                                    head.includes('<!doctype') ||
+                                    head.includes('<html') ||
+                                    head.includes('<head') ||
+                                    head.includes('<body') ||
+                                    head.includes('just a moment...') ||
+                                    head.includes('challenge-platform') ||
+                                    head.includes('cf_chl') ||
+                                    head.includes('access denied') ||
+                                    head.includes('404 not found') ||
+                                    head.includes('temporarily not available');
+                            } catch (e) {
+                                genBlobLooksLikeHtml = false;
+                            }
+                        }
+
+                        if (genBadStatus || genIsHtml || genBlobLooksLikeHtml || genSize === 0) {
+                            completed++;
+                            settleBatchResource(resource);
+
+                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ✖ ${ellipsedUrl}`);
+                            h.ui.setElProps(statusLabel, { color: '#b23b3b' });
+                            h.ui.setElProps(totalPB, {
+                                width: `${(completed / totalDownloadable) * 100}%`,
+                            });
+
+                            const reason = genBadStatus ? `HTTP ${genStatus}` : (genSize === 0 ? 'empty file (0 bytes)' : (genIsHtml ? 'HTML response' : 'Cloudflare/HTML challenge'));
+                            log.post.error(postId, `::Download rejected (${reason})::: ${url}`, postNumber);
+                            return;
+                        }
+
                         // Success path (unchanged)
                         completed++;
                         settleBatchResource(resource);
@@ -9425,8 +9506,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             fn = `${fn}`;
                         }
 
-                        const saveAsFF = `${title} #${postNumber} - ${ensureUniqueFlatName(fn.replace(/\//g, ' - '))}`;
-                        const saveAsPath = `${title}/${fn}`;
+                        const saveAsFF = clampRelPath(`${title} #${postNumber} - ${ensureUniqueFlatName(fn.replace(/\//g, ' - '))}`);
+                        const saveAsPath = clampRelPath(`${title}/${fn}`);
 
                         // Try folder path on all browsers first; use flat fallback only if needed.
                         const saveAsName = saveAsPath;
@@ -9461,7 +9542,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     clearTimeout(safetyTimer);
                                     // not_whitelisted or other GM_download error - fall back to saveAs
                                     try { URL.revokeObjectURL(blobUrl); } catch (e) { }
-                                    console.log(`GM_download failed (${response && response.error || 'unknown'}) for ${fn}. Falling back to saveAs.`);
+                                    const gmErr = (response && response.error) || 'unknown';
+                                    if (gmErr === 'not_whitelisted') {
+                                        // Tampermonkey refuses file extensions that are not in its download
+                                        // whitelist. This can only be fixed in Tampermonkey's settings, not here.
+                                        console.warn(`GM_download failed (not_whitelisted): ".${ext || '?'}" is not in Tampermonkey's download whitelist. Add it at Tampermonkey -> Settings -> Downloads -> file extension whitelist. Saving flat (no subfolder) for now: ${fn}`);
+                                        try { log.post.error(postId, `::Extension not whitelisted in Tampermonkey (Settings -> Downloads): .${ext || '?'}::: saving flat (no subfolder): ${fn}`, postNumber); } catch (e) { }
+                                    } else if (gmErr === 'not_succeeded') {
+                                        console.warn(`GM_download failed (not_succeeded) for ${fn}. The file name/path may be too long or invalid. Falling back to saveAs.`);
+                                    } else {
+                                        console.log(`GM_download failed (${gmErr}) for ${fn}. Falling back to saveAs.`);
+                                    }
                                     console.log(response);
                                     // saveAs can't create subfolders, so use flat name with thread title
                                     try { saveAs(fileBlob, saveAsFF || basename); } catch (e) {
