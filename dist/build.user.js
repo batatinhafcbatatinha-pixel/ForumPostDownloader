@@ -1569,7 +1569,7 @@ const canonicalizeThreadTitle = title => {
         [/^anastasia karanikolaou|stassiebaby$/i, 'Anastasia Karanikolaou'],
         [/^ellen rocche$/i, 'Ellen Rocche'],
         [/^flavia alessandra$/i, 'Flávia Alessandra'],
-        [/^cinna(?:brit)?$/i, 'Cinna'],
+        [/^cinna(?:\s*[\/-]\s*cinnabrit)?$|^cinnabrit$/i, 'Cinna'],
         [/^bianca andrade|boca rosa$/i, 'Boca Rosa'],
         [/^ana paula minerato|apminerato$/i, 'Ana Paula Minerato'],
         [/^luisa sonza$/i, 'Luísa Sonza'],
