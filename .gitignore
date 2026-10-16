@@ -2,3 +2,7 @@ node_modules
 .idea
 .vscode
 copia.js
+note.txt
+__pycache__/media_sync_server.cpython-314.pyc
+logs.md
+nomes.txt
