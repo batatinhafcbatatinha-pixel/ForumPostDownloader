@@ -4,7 +4,7 @@
 // @namespace https://github.com/SkyCloudDev
 // @author SkyCloudDev
 // @description Downloads images and videos from posts
-// @version 3.22-custom
+// @version 3.23-custom
 // (custom build) updateURL/downloadURL removed to avoid overwriting custom changes
 // @icon https://simp4.cuckcapital.cr/simpcityIcon192.png
 // @license WTFPL; http://www.wtfpl.net/txt/copying/
@@ -58,10 +58,20 @@
 // @connect bunkr.ps
 // @connect bunkr.sk
 // @connect bunkr.ws
+// @connect bunkr.lu
+// @connect bunkr.lv
+// @connect bunkr.bi
+// @connect bunkr.cm
+// @connect bunkr.at
+// @connect bunkr.by
+// @connect bunkr.cx
+// @connect bunkr.sx
 // @connect bunkrr.ru
 // @connect bunkrr.su
 // @connect bunkrrr.org
 // @connect bunkr-cache.se
+// @connect apidl.bunkr.ru
+// @connect get.bunkrr.su
 // @connect cdn.cr
 // @connect glb-apisign.cdn.cr
 // @connect b-cdn.net
@@ -107,7 +117,6 @@
 // @connect nhentai-proxy.herokuapp.com
 // @connect pbs.twimg.com
 // @connect media.tumblr.com
-// @connect pixeldrain.com
 // @connect pixeldrain.net
 // @connect pixeldra.in
 // @connect redgifs.com
@@ -120,6 +129,7 @@
 // @connect phncdn.com
 // @connect xvideos.com
 // @connect give.xxx
+// @connect goonbox.cr
 // @connect githubusercontent.com
 // @connect filester.me
 // @connect filester.sh
@@ -167,7 +177,6 @@ const http = window.GM_xmlhttpRequest;
 window.isFF = typeof InstallTrigger !== 'undefined';
 window.logs = [];
 window.xfpdDebugLastScan = null;
-const xfpdVersion = '3.22-custom-merge';
 
 const XFPD_MAX_LOG_ENTRIES = 2500;
 const XFPD_RUNTIME_CACHE_LIMITS = {
@@ -265,6 +274,24 @@ function xfpdPruneRuntimeCaches() {
         }
     }
 }
+
+// Script version, logged once per post run so a pasted log identifies its own build. Test reports
+// were previously ambiguous about which version produced them, which is a bad way to lose an
+// afternoon. GM_info needs no @grant in either manager, but read it defensively through the same
+// fallback shape used elsewhere -- a missing value here must never break a download.
+const xfpdVersion = (() => {
+    try {
+        const info =
+            (typeof GM_info !== 'undefined' && GM_info) ||
+            (typeof window !== 'undefined' && window.GM_info) ||
+            (typeof GM === 'object' && GM && GM.info) ||
+            null;
+        const v = info && info.script && info.script.version;
+        return v ? String(v) : 'unknown';
+    } catch (e) {
+        return 'unknown';
+    }
+})();
 
 const log = {
     /**
@@ -568,124 +595,494 @@ function filesterBuildCandidates(token, apiBase = 'https://filester.me') {
     return filesterStreamBases(apiBase).map(base => `${base}/v/${t}`);
 }
 
+// A resolved Filester stream URL lives on a CDN host we do not control the naming of, so recognise
+// it by the slug map populated at resolution time rather than by hostname.
+function isFilesterUrl(u) {
+    const s = String(u || '');
+    if (/(?:^|\/\/)(?:[a-z0-9-]+\.)*filester\.(?:me|sh|si|gg)\/(?:d|v)\//i.test(s)) return true;
+    return filesterSlugByUrl.has(s);
+}
+
 // Bunkr filename hints (from /v/ pages)
 const bunkrNameByUrl = new Map();
+
+// Goonbox: embedded medium-res thumbnail per /img/ link, used as a download fallback when the
+// API's original_url 404s (post-migration, some originals are missing but the .md. thumbnail --
+// also hosted on cuckcapital.cr -- still exists).
 const goonboxThumbByUrl = new Map();
 
+// --- Goonbox same-origin API bridge -------------------------------------------------------------
+// Goonbox's API sits behind Cloudflare and requires the first-party goonbox.cr cookies. On Firefox
+// a GM_xmlhttpRequest issued from the SimpCity tab is a third-party request and does not carry
+// them, so /api/images/* and /api/albums/* answer 403. No header we can set fixes that -- the
+// cookies are not ours to send.
+//
+// The workaround (from a contributor) is to keep one inactive goonbox.cr tab. This script also runs
+// there (see the @match), where it *is* same-origin and `fetch(..., {credentials:'include'})`
+// carries the real cookies. The two tabs talk over GM storage, which is shared per-script across
+// tabs.
+//
+// The direct GM_xmlhttpRequest stays the first attempt: it still works on Chrome/Tampermonkey and
+// costs a single request. The tab is only opened when that first attempt comes back 403, empty, or
+// unparseable, so nothing changes for users who were never affected.
 const GOONBOX_ORIGIN = 'https://goonbox.cr';
+
 const GBX_K_READY = 'xfpd_gbx_ready';
 const GBX_K_REQ = 'xfpd_gbx_req';
 const GBX_K_RES = 'xfpd_gbx_res';
-const GBX_MARKER_KEY = 'xfpd_gbx';
-const GBX_MARKER_VAL = '1';
+
 const GBX_POLL_MS = 150;
+const GBX_HEARTBEAT_MS = 1000;
 const GBX_READY_TIMEOUT_MS = 20000;
 const GBX_REQ_TIMEOUT_MS = 25000;
-let gbxTabHandle = null;
-let gbxRequestId = 0;
-let gbxBridgeChain = Promise.resolve();
+// Close a few seconds after the *last* request, not after each one: a post usually resolves several
+// Goonbox links, and reopening a tab per link would be slow and conspicuous.
+const GBX_IDLE_CLOSE_MS = 5000;
+// Cloudflare may still be settling when the helper tab first runs, so a single same-origin attempt
+// is not enough to conclude anything.
+const GBX_FETCH_ATTEMPTS = 3;
+const GBX_FETCH_RETRY_MS = 800;
 
-const goonboxBridgePathAllowed = path =>
-    /^\/api\/(?:images\/[A-Za-z0-9_.-]{1,128}|albums\/[A-Za-z0-9._~-]{1,128}\/images\?page=\d{1,4})$/.test(String(path || ''));
+// The helper tab is opened on a *real* Goonbox page (the image or album being resolved) with this
+// marker appended, rather than on the bare origin.
+//
+// Two reasons, both from contributor testing of b08. First, empirical: on Firefox + Tampermonkey a
+// tab opened at `https://goonbox.cr/` never ran this script at all -- no heartbeat ever arrived, so
+// every resolve ate the full 20s readiness timeout and then failed. Opening the actual content URL
+// works. The most likely mechanism is that the bare origin redirects somewhere the @match does not
+// cover (`www.`, most plausibly), so the script is never injected; hence the added wildcard @match
+// as well. Chrome + Tampermonkey and Firefox + Violentmonkey were unaffected, which is why b08
+// tested clean everywhere else.
+//
+// Second, the marker gates the worker: only a tab we opened serves the bridge. A user browsing
+// goonbox.cr normally no longer becomes an unwitting bridge, and `gbxBridgeAlive()` now reflects
+// only our own helper tab, which makes readiness mean one specific thing instead of two.
+const GBX_MARKER_KEY = 'xfpd_gbx';
+const GBX_MARKER_VAL = '1';
 
-const gbxGet = (key, fallback = '') => {
-    try { return GM_getValue(key, fallback); } catch (e) { return fallback; }
-};
+// Only these two API shapes may cross the bridge. The helper tab builds the final URL itself as
+// GOONBOX_ORIGIN + path and never accepts a full URL, so an unexpected value in GM storage cannot
+// turn a cookie-bearing tab into a general-purpose authenticated proxy. Enforced on both sides.
+const GBX_ALLOWED_PATHS = [
+    /^\/api\/images\/[A-Za-z0-9_-]{1,64}$/,
+    /^\/api\/albums\/[A-Za-z0-9._~-]{1,128}\/images\?page=\d{1,4}$/,
+];
 
-const gbxSet = (key, value) => {
-    try { GM_setValue(key, value); } catch (e) { }
-};
-
-const gbxSleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-function goonboxBridgeServe() {
-    let requestInProgress = false;
-    let lastRequestId = '';
-    const heartbeat = () => gbxSet(GBX_K_READY, Date.now());
-    heartbeat();
-    setInterval(heartbeat, 1000);
-
-    const handle = async raw => {
-        if (requestInProgress) return;
-        let request = null;
-        try { request = JSON.parse(String(raw || '')); } catch (e) { return; }
-        if (!request?.id || request.id === lastRequestId || !goonboxBridgePathAllowed(request.path)) return;
-        lastRequestId = request.id;
-        requestInProgress = true;
-        try {
-            const response = await fetch(`${GOONBOX_ORIGIN}${request.path}`, {
-                credentials: 'include',
-                headers: { Accept: 'application/json' },
-            });
-            gbxSet(GBX_K_RES, JSON.stringify({
-                id: request.id,
-                ok: response.ok,
-                status: response.status,
-                body: await response.text(),
-            }));
-        } catch (e) {
-            gbxSet(GBX_K_RES, JSON.stringify({ id: request.id, ok: false, status: 0, body: '' }));
-        } finally {
-            requestInProgress = false;
-        }
-    };
-
-    setInterval(() => handle(gbxGet(GBX_K_REQ, '')), GBX_POLL_MS);
+function goonboxBridgePathAllowed(p) {
+    const s = String(p || '');
+    return GBX_ALLOWED_PATHS.some(rx => rx.test(s));
 }
 
-async function goonboxBridgeGet(path, pageUrl) {
-    if (!goonboxBridgePathAllowed(path)) return null;
-    const ready = Number(gbxGet(GBX_K_READY, 0) || 0);
-    if (!ready || Date.now() - ready > 5000) {
-        gbxSet(GBX_K_READY, 0);
-        try {
-            const helperUrl = new URL(pageUrl || `${GOONBOX_ORIGIN}/`);
-            helperUrl.searchParams.set(GBX_MARKER_KEY, GBX_MARKER_VAL);
-            gbxTabHandle = GM_openInTab(helperUrl.href, { active: false, insert: true, setParent: true });
-        } catch (e) {
-            return null;
-        }
+// --- cross-tab delivery ---------------------------------------------------------------------
+// GM storage reads are NOT reliably cross-tab. Tampermonkey keeps a per-tab in-memory cache, and
+// GM_getValue reads that cache -- so a tab polling for another tab's write can sit reading its own
+// stale copy indefinitely. That is exactly what stalled the bridge on Firefox + Tampermonkey
+// (b13): the helper tab heartbeated correctly and the script was confirmed running in it, while
+// the SimpCity tab polled its own cache, saw nothing, and timed out after two 20s waits. Chrome +
+// TM and Firefox + VM happen to propagate, which is why it worked there and hid the assumption.
+//
+// GM_addValueChangeListener is the documented mechanism for this: the callback is handed newValue
+// directly, so no cache is ever consulted. Polling is **kept alongside** it rather than replaced --
+// it demonstrably works on the configurations that already worked, and the two paths dedupe
+// naturally (by request id, and by taking whichever heartbeat is newer), so whichever arrives
+// first wins and neither can double-handle a request.
+const xfpdAddValueChangeListener =
+    (typeof GM_addValueChangeListener === 'function' ? GM_addValueChangeListener : null) ||
+    (typeof window.GM_addValueChangeListener === 'function' ? window.GM_addValueChangeListener.bind(window) : null);
 
-        const readyDeadline = Date.now() + GBX_READY_TIMEOUT_MS;
-        while (Date.now() < readyDeadline) {
-            if (Number(gbxGet(GBX_K_READY, 0) || 0) > 0) break;
-            await gbxSleep(GBX_POLL_MS);
-        }
-        if (!Number(gbxGet(GBX_K_READY, 0) || 0)) return null;
-    }
+// Mirrors fed by the listener, consulted alongside the polled value.
+let gbxReadyMirror = 0;
+let gbxResMirror = '';
+let gbxListenersBound = false;
 
-    const id = `${Date.now()}_${++gbxRequestId}`;
+function gbxBindListeners() {
+    if (gbxListenersBound || !xfpdAddValueChangeListener) return;
+    gbxListenersBound = true;
+    try {
+        xfpdAddValueChangeListener(GBX_K_READY, (name, oldV, newV) => {
+            // Last write wins: heartbeats are monotonic, and tab close writes 0 to clear.
+            gbxReadyMirror = Number(newV || 0) || 0;
+        });
+    } catch (e) {}
+    try {
+        xfpdAddValueChangeListener(GBX_K_RES, (name, oldV, newV) => {
+            gbxResMirror = String(newV || '');
+        });
+    } catch (e) {}
+}
+
+const gbxSleep = ms => new Promise(r => setTimeout(r, ms));
+
+function gbxGet(key, dflt = '') {
+    try { return GM_getValue(key, dflt); } catch (e) { return dflt; }
+}
+
+function gbxSet(key, val) {
+    try { GM_setValue(key, val); } catch (e) {}
+}
+
+// --- requester side (runs in the SimpCity tab) ---
+let gbxTabHandle = null;
+let gbxIdleTimer = null;
+let gbxChain = Promise.resolve();
+let gbxSeq = 0;
+// Circuit breaker. If the helper tab never announces itself -- almost always a Cloudflare
+// interstitial that needs a human -- every later link would otherwise pay the full readiness
+// timeout again, since the tab handle exists and so is never reopened. A five-page album would
+// stall for minutes to produce nothing. Back off instead, but not permanently: the user may well
+// go and clear the interstitial in the tab we just opened for them.
+let gbxUnavailableUntil = 0;
+let gbxInFlight = 0;
+const GBX_BREAKER_MS = 120000;
+
+// The helper tab heartbeats while it is alive, so a stale value from a previous session (browser
+// closed, tab killed) reads as dead rather than wedging the next run.
+function gbxBridgeAlive() {
+    // Whichever source is fresher. The polled read is authoritative where propagation works; the
+    // listener mirror is the only source that sees anything at all on Firefox + Tampermonkey.
+    const polled = Number(gbxGet(GBX_K_READY, 0) || 0) || 0;
+    const t = Math.max(polled, gbxReadyMirror);
+    return t > 0 && (Date.now() - t) < (GBX_HEARTBEAT_MS * 5);
+}
+
+function gbxCloseTab() {
+    try { if (gbxIdleTimer) clearTimeout(gbxIdleTimer); } catch (e) {}
+    gbxIdleTimer = null;
+    // window.close() from inside the tab is unreliable on Chrome; close via the GM_openInTab
+    // handle instead (xfpdCloseTabHandle also copes with implementations returning Promise<Tab>).
+    try { xfpdCloseTabHandle(gbxTabHandle); } catch (e) {}
+    gbxTabHandle = null;
+    gbxSet(GBX_K_READY, 0);
+    gbxSet(GBX_K_REQ, '');
     gbxSet(GBX_K_RES, '');
-    gbxSet(GBX_K_REQ, JSON.stringify({ id, path }));
-    const deadline = Date.now() + GBX_REQ_TIMEOUT_MS;
+}
+
+// The idle timer must be cancelled when a request *starts*, not only re-armed when one finishes.
+// In b08 it was armed on settle only, so the 5s timer left by request N could fire in the middle of
+// request N+1 and close the tab out from under it -- the in-flight request then saw a dead bridge
+// and returned null. Back-to-back album pages usually finished inside the 5s window and hid it, but
+// any request slower than that (or one that had to wait out a tab reopen) hit it.
+function gbxCancelIdleTimer() {
+    try { if (gbxIdleTimer) clearTimeout(gbxIdleTimer); } catch (e) {}
+    gbxIdleTimer = null;
+}
+
+function gbxMaybeArmIdleTimer() {
+    gbxCancelIdleTimer();
+    // Only once nothing is outstanding. gbxInFlight is a counter rather than a boolean so this
+    // stays correct if the serialization above is ever relaxed.
+    if (gbxInFlight > 0) return;
+    gbxIdleTimer = setTimeout(() => { try { gbxCloseTab(); } catch (e) {} }, GBX_IDLE_CLOSE_MS);
+}
+
+// A real Goonbox URL plus the marker that tells the injected script to serve the bridge.
+function gbxHelperUrl(pageUrl) {
+    const base = String(pageUrl || '').trim();
+    try {
+        const u = new URL(base);
+        if (/(^|\.)goonbox\.cr$/i.test(u.hostname)) {
+            u.searchParams.set(GBX_MARKER_KEY, GBX_MARKER_VAL);
+            return u.href;
+        }
+    } catch (e) {}
+    // No usable content URL -- fall back to the origin. Known not to work on Firefox +
+    // Tampermonkey (see GBX_MARKER_KEY), but better than not trying.
+    return `${GOONBOX_ORIGIN}/?${GBX_MARKER_KEY}=${GBX_MARKER_VAL}`;
+}
+
+function gbxOpenTab(pageUrl) {
+    gbxSet(GBX_K_READY, 0);
+    try {
+        return GM_openInTab(gbxHelperUrl(pageUrl), { active: false, insert: true, setParent: true });
+    } catch (e) {
+        return null;
+    }
+}
+
+async function gbxAwaitReady() {
+    const deadline = Date.now() + GBX_READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
-        const raw = gbxGet(GBX_K_RES, '');
-        try {
-            const response = JSON.parse(String(raw || ''));
-            if (response?.id === id) return response;
-        } catch (e) { }
+        if (gbxBridgeAlive()) return true;
         await gbxSleep(GBX_POLL_MS);
     }
+    return false;
+}
+
+async function gbxEnsureTab(pageUrl) {
+    // Must happen before the first gbxBridgeAlive() read, or the heartbeat that arrives while we
+    // are opening the tab has nowhere to land.
+    gbxBindListeners();
+
+    if (gbxBridgeAlive()) {
+        gbxUnavailableUntil = 0;
+        return true;
+    }
+    if (Date.now() < gbxUnavailableUntil) return false;
+
+    if (!gbxTabHandle) {
+        gbxTabHandle = gbxOpenTab(pageUrl);
+        if (!gbxTabHandle) return false;
+    }
+
+    if (await gbxAwaitReady()) {
+        gbxUnavailableUntil = 0;
+        return true;
+    }
+
+    // No heartbeat. The tab may exist but have had no script injected into it, in which case it
+    // will never come good on its own and waiting longer is pointless -- discard it and open a
+    // fresh one once. (Contributor's suggestion, from hitting exactly this on Firefox + TM.)
+    try { xfpdCloseTabHandle(gbxTabHandle); } catch (e) {}
+    gbxTabHandle = gbxOpenTab(pageUrl);
+    if (gbxTabHandle && await gbxAwaitReady()) {
+        gbxUnavailableUntil = 0;
+        return true;
+    }
+
+    // Still nothing after a clean retry: most likely a Cloudflare interstitial that needs a human.
+    // Leave this second tab open -- it is where they would solve it, and the next attempt after the
+    // backoff will find it alive.
+    gbxUnavailableUntil = Date.now() + GBX_BREAKER_MS;
+    return false;
+}
+
+// Sends one API path through the helper tab. Serialized: exactly one bridge request is in flight at
+// a time, which keeps the handshake race-free (a shared queue would need a read-modify-write on a
+// single GM key) and keeps the Goonbox API calls sequential. Resolves to {ok, status, body} or null.
+function goonboxBridgeGet(path, pageUrl) {
+    const run = async () => {
+        if (!goonboxBridgePathAllowed(path)) return null;
+        if (!(await gbxEnsureTab(pageUrl))) return null;
+
+        const id = `${Date.now()}_${++gbxSeq}`;
+        gbxResMirror = '';
+        gbxSet(GBX_K_RES, '');
+        gbxSet(GBX_K_REQ, JSON.stringify({ id, path, t: Date.now() }));
+
+        const deadline = Date.now() + GBX_REQ_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+            await gbxSleep(GBX_POLL_MS);
+
+            // Listener mirror first -- on Firefox + Tampermonkey the polled read never updates.
+            let res = null;
+            for (const raw of [gbxResMirror, gbxGet(GBX_K_RES, '')]) {
+                try {
+                    const p = JSON.parse(String(raw || ''));
+                    if (p && p.id === id) { res = p; break; }
+                } catch (e) {}
+            }
+            if (res) return res;
+
+            // Tab was closed or crashed mid-request; no point waiting out the full deadline.
+            if (!gbxBridgeAlive()) break;
+        }
+        return null;
+    };
+
+    // Count in, cancel any pending close, run, count out, then re-arm only if nothing else is
+    // outstanding. Incrementing here rather than inside run() is deliberate: the request is queued
+    // from this moment, so the tab must survive until the chain drains, not just until the
+    // currently-executing run() returns.
+    gbxInFlight++;
+    gbxCancelIdleTimer();
+
+    const settle = () => {
+        gbxInFlight = Math.max(0, gbxInFlight - 1);
+        gbxMaybeArmIdleTimer();
+    };
+
+    gbxChain = gbxChain.catch(() => {}).then(run);
+    const p = gbxChain;
+    p.then(settle, settle);
+    return p;
+}
+
+// Debug switch: force every Goonbox API call down the bridge path even when the direct request
+// succeeds. From the devtools console on a SimpCity tab:
+//
+//     localStorage.setItem('xfpd_gbx_force_bridge', 'true')   // enable
+//     localStorage.removeItem('xfpd_gbx_force_bridge')        // disable
+//
+// localStorage rather than GM storage because `GM_setValue` does not exist in the page console --
+// the GM_* functions live only inside the userscript sandbox, so they cannot be called from
+// devtools. The flag is read exclusively in the SimpCity tab (the helper tab never consults it), so
+// page-origin storage is sufficient. GM storage is still honoured as well, for anyone setting it
+// through Tampermonkey's Storage tab.
+//
+// This exists because the 403 the bridge was built for has not reproduced in **any** configuration
+// across six test runs (Chrome+TM, Firefox+TM, Firefox+VM). With the direct request always
+// succeeding, not one line of the bridge executes against the real site, so the feature cannot be
+// validated by ordinary testing at all. Forcing the path exercises tab open -> marker -> same-origin
+// fetch -> handshake end to end, independently of whether the symptom reproduces.
+//
+// Off unless explicitly enabled, and it only ever *adds* an attempt -- with the flag set, a failed
+// bridge still falls through to whatever the direct call returned, so enabling it cannot make a
+// download fail that would otherwise have worked.
+const GBX_K_FORCE = 'xfpd_gbx_force_bridge';
+
+function gbxForceEnabled() {
+    // Page-origin storage first, since that is the one reachable from devtools.
+    try {
+        const v = localStorage.getItem(GBX_K_FORCE);
+        if (v !== null && String(v).toLowerCase() === 'true') return true;
+    } catch (e) {}
+    try {
+        const v = gbxGet(GBX_K_FORCE, false);
+        if (v === true || String(v).toLowerCase() === 'true') return true;
+    } catch (e) {}
+    return false;
+}
+
+// One Goonbox API call: direct first, bridge second. Returns parsed JSON, or null if both failed.
+// `pageUrl` is the real Goonbox page being resolved: it is both the Referer for the direct request
+// and, with a marker appended, the URL the helper tab is opened on.
+async function goonboxApiJson(http, path, pageUrl, postId) {
+    const referer = pageUrl;
+    const say = (msg) => {
+        try { log.host.info(postId, msg, 'goonbox.cr'); } catch (e) {}
+    };
+    const parse = (s) => {
+        try {
+            const j = JSON.parse(String(s || ''));
+            return (j && typeof j === 'object') ? j : null;
+        } catch (e) { return null; }
+    };
+
+    let status = 0;
+    let source = '';
+    try {
+        const r = await http.get(
+            `${GOONBOX_ORIGIN}${path}`,
+            {},
+            { Referer: referer || `${GOONBOX_ORIGIN}/`, Accept: 'application/json' },
+            'text',
+        );
+        status = Number((r && r.status) || 0) || 0;
+        source = String((r && r.source) || '');
+    } catch (e) {}
+
+    const direct = (status && status < 400) ? parse(source) : null;
+    const forced = gbxForceEnabled();
+
+    if (direct && !forced) return direct;
+
+    // Whether the bridge engages has been invisible in the logs until now, which is exactly why six
+    // runs produced no usable evidence about it. Say so, and say why.
+    if (forced) {
+        say(`::Bridge forced (debug flag)::: ${path}`);
+    } else {
+        // 403 from Cloudflare, an empty body, or an HTML challenge page that will not parse as JSON
+        // -- all mean the same thing here, so retry same-origin rather than telling them apart.
+        say(`::API direct failed (${status || 'no response'}) -> bridge::: ${path}`);
+    }
+
+    const viaBridge = await goonboxBridgeGet(path, pageUrl);
+
+    if (viaBridge && viaBridge.ok) {
+        const j = parse(viaBridge.body);
+        if (j) {
+            say(`::Bridge OK (${viaBridge.status})::: ${path}`);
+            return j;
+        }
+        say(`::Bridge returned ${viaBridge.status} but body was not JSON::: ${path}`);
+    } else {
+        say(`::Bridge failed (${viaBridge ? viaBridge.status : 'no response'})::: ${path}`);
+    }
+
+    // Forcing must never be able to break a working download: fall back to the direct result.
+    if (direct) return direct;
+
     return null;
 }
 
-async function goonboxApiJson(httpClient, path, pageUrl, postId) {
-    const direct = await httpClient.get(`${GOONBOX_ORIGIN}${path}`, {}, {
-        Accept: 'application/json',
-        Referer: pageUrl || `${GOONBOX_ORIGIN}/`,
-    }, 'text').catch(() => null);
+// --- helper-tab side (runs only on goonbox.cr) ---
+// Only serves in a tab *we* opened, identified by the marker in the URL. A user browsing
+// goonbox.cr normally runs this script too (the @match is origin-wide) but must not silently
+// become a bridge for it.
+function gbxIsHelperTab() {
     try {
-        const parsed = JSON.parse(String(direct?.source || ''));
-        if (parsed && typeof parsed === 'object' && !/<!doctype|<html/i.test(String(direct?.source || ''))) return parsed;
-    } catch (e) { }
-
-    const bridged = await goonboxBridgeGet(path, pageUrl);
-    try {
-        return bridged?.body ? JSON.parse(bridged.body) : null;
+        return new URLSearchParams(location.search).get(GBX_MARKER_KEY) === GBX_MARKER_VAL;
     } catch (e) {
-        try { log.host.warn(postId, `Goonbox bridge returned invalid JSON: ${path}`, 'goonbox.cr'); } catch (e2) { }
-        return null;
+        return false;
     }
+}
+
+function goonboxBridgeServe() {
+    if (!gbxIsHelperTab()) return;
+
+    let lastId = '';
+    let busy = false;
+
+    const beat = () => gbxSet(GBX_K_READY, Date.now());
+    beat();
+    setInterval(beat, GBX_HEARTBEAT_MS);
+
+    const handle = async (raw) => {
+        if (busy) return;
+
+        let req = null;
+        try { req = JSON.parse(String(raw || '')); } catch (e) { req = null; }
+        if (!req || !req.id || req.id === lastId) return;
+
+        lastId = req.id;
+        busy = true;
+
+        const reply = (payload) => {
+            try { gbxSet(GBX_K_RES, JSON.stringify({ id: req.id, ...payload })); } catch (e) {}
+        };
+
+        try {
+            // Re-check here and not only on the requesting side: this tab is the one holding the
+            // cookies, so it is the only place the restriction actually protects anything.
+            if (!goonboxBridgePathAllowed(req.path)) {
+                reply({ ok: false, status: 0, body: '' });
+                return;
+            }
+
+            // Cloudflare may still be settling in a tab that has only just loaded, so a single
+            // attempt is not enough to conclude the cookies are unusable. Retry a few times, but
+            // only while the answer still looks like a challenge or a transport failure -- a clean
+            // 404 is a real answer and is returned immediately.
+            let last = { ok: false, status: 0, body: '' };
+            for (let attempt = 1; attempt <= GBX_FETCH_ATTEMPTS; attempt++) {
+                try {
+                    const r = await fetch(`${GOONBOX_ORIGIN}${req.path}`, {
+                        credentials: 'include',
+                        headers: { Accept: 'application/json' },
+                    });
+                    const body = await r.text();
+                    last = { ok: !!r.ok, status: Number(r.status) || 0, body };
+                } catch (e) {
+                    last = { ok: false, status: 0, body: '' };
+                }
+
+                let parsed = null;
+                try { parsed = JSON.parse(String(last.body || '')); } catch (e) { parsed = null; }
+                if (last.ok && parsed && typeof parsed === 'object') break;
+                if (last.status && last.status !== 403 && last.status !== 429 && last.status < 500) break;
+
+                if (attempt < GBX_FETCH_ATTEMPTS) await gbxSleep(GBX_FETCH_RETRY_MS);
+            }
+
+            reply(last);
+        } catch (e) {
+            reply({ ok: false, status: 0, body: '' });
+        } finally {
+            busy = false;
+        }
+    };
+
+    // Listener first: on Firefox + Tampermonkey the poll below never observes the SimpCity tab's
+    // write at all, because it only ever reads this tab's own cached copy.
+    if (xfpdAddValueChangeListener) {
+        try {
+            xfpdAddValueChangeListener(GBX_K_REQ, (name, oldV, newV) => { handle(newV); });
+        } catch (e) {}
+    }
+
+    // Polling retained deliberately: it is what works on the configurations that already worked,
+    // and `lastId` makes double-delivery a no-op.
+    setInterval(() => { handle(gbxGet(GBX_K_REQ, '')); }, GBX_POLL_MS);
 }
 
 
@@ -1111,6 +1508,7 @@ async function xfpdBunkrSignCdnUrl(httpClient, rawUrl) {
     } catch (e) { }
     return rawUrl;
 }
+
 
 
 
@@ -1737,6 +2135,8 @@ const parsers = {
                         img.remove();
                     }
                 });
+                // Goonbox links wrap a medium-res CDN thumbnail; the API gives the original.
+                messageContentClone.querySelectorAll('a[href*="goonbox.cr"] img').forEach((img) => img.remove());
             } catch (e) { /* ignore */ }
 
 
@@ -2785,16 +3185,16 @@ const hosts = [
     ['Redgifs:video', [/!!redgifs.com(\/|\\\/)ifr.*?(?=["']|&quot;)/]],
     ['Redgifs:user', [/redgifs\.com\/users\//]],
     ['Bunkr:',
-        [
-            /!!(?<=href=")https:\/\/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/)).*?(?=")|(?<=(href=")|(src="))https:\/\/((i|cdn|i-pizza|big-taco-1img)(\d+)?\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/))\/(v\/)?.*?(?=")/,
-        ]
+     [
+         /!!(?<=href=")https:\/\/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/)).*?(?=")|(?<=(href=")|(src="))https:\/\/((i|cdn|i-pizza|big-taco-1img)(\d+)?\.)?bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)(?!(\/a\/))\/(v\/)?.*?(?=")/,
+     ]
     ],
-    ['Bunkr:Albums', [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)\/a\//]],
+    ['Bunkr:Albums', [/bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|ru|su|org)\/a\//]],
     ['Give.xxx:Profiles', [/give.xxx\/[~an@_-]+/]],
     ['Pixeldrain:', [/(focus\.)?(?:pixeldrain\.com|pixeldrain\.net|pixeldra\.in)\/[lu]\//]],
     ['Gofile:', [/gofile.io\/d/]],
-    ['Filester:links', [/filester\.me\/d\//]],
-    ['Filester:albums', [/filester\.me\/f\/[~an@-_.]+<no_qs>/]],
+    ['Filester:links', [/filester\.(me|sh|si|gg)\/d\//]],
+    ['Filester:albums', [/filester\.(me|sh|si|gg)\/f\/[~an@-_.]+<no_qs>/]],
     ['Box.com:', [/m\.box\.com\//]],
     ['Yandex:', [/(disk\.)?yandex\.[a-z]+/]],
     ['Cyberfile:', [/!!https:\/\/cyberfile.(su|me)\/\w+(\/)?(?=")/, /cyberfile.(su|me)\/folder\//]],
@@ -3339,14 +3739,20 @@ const resolvers = [
         },
     ],
     [
-        [/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org).*?\.|((i|cdn)(\d+)?\.)?bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/(v\/)?/i, /:!bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
+        [/((stream|cdn(\d+)?)\.)?bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org).*?\.|((i|cdn)(\d+)?\.)?bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/(v\/)?/i, /:!bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
         async (url, http) => {
             try {
                 const cleanUrl = String(url || '').split('#')[0];
 
+                // Legacy Bunkr CDN hosts no longer serve files directly: as of 2026-07-28,
+                // cdn*.bunkr.*/<name>.mp4 responds 301 -> bunkr.*/f/<slug>, an HTML page. So these
+                // links still need the metadata + signing flow, and must NOT be treated as final.
+                const isLegacyBunkrCdn = /^https?:\/\/(?:cdn\d*|stream)\.bunkrr?r?\./i.test(cleanUrl);
+
                 // If this already looks like a direct media file URL, keep it (don't call /api/vs).
                 // (CDN links usually include the real filename already.)
                 if (
+                    !isLegacyBunkrCdn &&
                     /\.(?:mp4|m4v|webm|mov|mkv|jpg|jpeg|png|gif|webp|zip|rar|7z|pdf)(?:$|\?)/i.test(cleanUrl) &&
                     !/\/(?:v|f|d)\//i.test(cleanUrl)
                 ) {
@@ -3360,52 +3766,68 @@ const resolvers = [
                 const segments = pathname.split('/').filter(Boolean);
                 const index = segments.findIndex(s => ['f', 'v', 'd'].includes(s));
                 const id = index > -1 ? segments.slice(index + 1).join('/') : segments.pop();
+                let bunkrDataId = null;
 
-                // Best-effort: read the human filename from the view page (og:title / h1 / <title>).
-                // This lets us rename CDN GUID links back to the original filename.
-                try {
-                    const strip = (s) => String(s || '').split('#')[0].split('?')[0];
-                    const bases = xfpdBunkrFilterBases([origin, 'https://bunkr.pk', 'https://bunkr.cr']);
+// Best-effort: read the human filename from the view page (og:title / h1 / <title>).
+// This lets us rename CDN GUID links back to the original filename.
+try {
+    const strip = (s) => String(s || '').split('#')[0].split('?')[0];
+    const bases = xfpdBunkrFilterBases(
+        isLegacyBunkrCdn
+            ? ['https://bunkr.cr', 'https://bunkr.pk']
+            : [origin, 'https://bunkr.pk', 'https://bunkr.cr']
+    );
+    // DIAGNOSTIC (b02): tracing why some /f/ links resolve to nothing and get downloaded as HTML.
+    console.log(`[Bunkr] resolve start: url=${cleanUrl} origin=${origin} id=${id} legacyCdn=${isLegacyBunkrCdn} bases=${JSON.stringify(bases)}`);
 
-                    for (const base of bases) {
-                        const base0 = String(base || '').replace(/\/$/, '');
-                        const candidates = [];
-                        if (/\/v\//i.test(pathname) && base0 === origin) candidates.push(cleanUrl);
-                        candidates.push(`${base0}/v/${id}`);
-                        candidates.push(`${base0}/f/${id}`);
+    for (const base of bases) {
+        const base0 = String(base || '').replace(/\/$/, '');
+        const candidates = [];
+        if (/\/v\//i.test(pathname) && base0 === origin) candidates.push(cleanUrl);
+        candidates.push(`${base0}/v/${id}`);
+        candidates.push(`${base0}/f/${id}`);
 
-                        const uniq = candidates.filter((v, i, a) => a.indexOf(v) === i);
-                        let found = false;
+        const uniq = candidates.filter((v, i, a) => a.indexOf(v) === i);
+        let found = false;
 
-                        for (const viewUrl of uniq) {
-                            const viewRes = await xfpdBunkrGetWithCfRetry(http, viewUrl, base0, base0 === 'https://bunkr.cr');
-                            const dom = viewRes?.dom;
-                            const viewSource = viewRes?.source || '';
+        for (const viewUrl of uniq) {
+            const viewRes = await xfpdBunkrGetWithCfRetry(http, viewUrl, base0, base0 === 'https://bunkr.cr');
+            const dom = viewRes?.dom;
+            const viewSource = viewRes?.source || '';
 
-                            // If Cloudflare interstitial is active, don't capture a bogus "Just a moment..." title as a filename hint.
-                            if (xfpdLooksLikeCfChallenge(viewSource, dom)) continue;
+            const cfHit = xfpdLooksLikeCfChallenge(viewSource, dom);
+            console.log(`[Bunkr] view ${viewUrl}: bytes=${viewSource.length} dom=${!!dom} cfChallenge=${cfHit}`);
 
-                            let title =
-                                dom?.querySelector?.('meta[property="og:title"]')?.getAttribute?.('content') ||
-                                dom?.querySelector?.('h1')?.textContent ||
-                                dom?.querySelector?.('title')?.textContent ||
-                                '';
-                            title = String(title || '').replace(/\s+/g, ' ').trim();
-                            title = title.replace(/\s*\|\s*Bunkr\s*$/i, '').trim();
+            // If Cloudflare interstitial is active, don't capture a bogus "Just a moment..." title as a filename hint.
+            if (cfHit) continue;
 
-                            if (title && !xfpdLooksLikeCfFilenameHint(title)) {
-                                bunkrNameByUrl.set(cleanUrl, title);
-                                bunkrNameByUrl.set(strip(cleanUrl), title);
-                                bunkrNameByUrl.set(viewUrl, title);
-                                bunkrNameByUrl.set(strip(viewUrl), title);
-                                found = true;
-                                break;
-                            }
-                        }
+            if (!bunkrDataId) {
+                bunkrDataId = dom?.querySelector?.('[data-file-id]')?.getAttribute?.('data-file-id') || null;
+                console.log(`[Bunkr] data-file-id from ${viewUrl}: ${bunkrDataId || 'NOT FOUND'}`
+                    + (bunkrDataId ? '' : ` (page mentions dl.bunkr link: ${/dl\.bunkr\.[a-z]+\/file\/\d+/i.test(viewSource)})`));
+            }
 
-                        if (found) break;
-                    }
-                } catch (e) { }
+            let title =
+                dom?.querySelector?.('meta[property="og:title"]')?.getAttribute?.('content') ||
+                dom?.querySelector?.('h1')?.textContent ||
+                dom?.querySelector?.('title')?.textContent ||
+                '';
+            title = String(title || '').replace(/\s+/g, ' ').trim();
+            title = title.replace(/\s*\|\s*Bunkr\s*$/i, '').trim();
+
+            if (title && !xfpdLooksLikeCfFilenameHint(title)) {
+                bunkrNameByUrl.set(cleanUrl, title);
+                bunkrNameByUrl.set(strip(cleanUrl), title);
+                bunkrNameByUrl.set(viewUrl, title);
+                bunkrNameByUrl.set(strip(viewUrl), title);
+                found = true;
+                break;
+            }
+        }
+
+        if (found) break;
+    }
+} catch (e) {}
 
                 const decodeFinalUrl = data => {
                     try {
@@ -3423,56 +3845,64 @@ const resolvers = [
                     }
                 };
 
-                const tryVs = async base => {
-                    const base0 = String(base || '').replace(/\/$/, '');
-                    const vsEndpoint = `${base0}/api/vs`;
-
+                const tryNewApi = async () => {
+                    if (!bunkrDataId) {
+                        console.log('[Bunkr] tryNewApi skipped: no data-file-id was found on any view page');
+                        return null;
+                    }
                     try {
-                        const data = await xfpdBunkrPostVsWithCfRetry(http, vsEndpoint, id, cleanUrl, base0, base0 === 'https://bunkr.cr');
+                        const refererUrl = `https://get.bunkrr.su/file/${bunkrDataId}`;
+                        const response = await http.post(
+                            'https://apidl.bunkr.ru/api/_001_v2',
+                            JSON.stringify({ id: bunkrDataId }),
+                            {},
+                            {
+                                'Content-Type': 'application/json',
+                                Referer: refererUrl,
+                                Origin: 'https://get.bunkrr.su',
+                            }
+                        );
+                        const text = String(response?.source || '');
+                        console.log(`[Bunkr] api _001_v2 id=${bunkrDataId}: bytes=${text.length} head=${text.slice(0, 160)}`);
+                        if (!text) return null;
+                        const data = JSON.parse(text);
                         if (!data) return null;
 
                         let finalUrl = decodeFinalUrl(data);
-
+                        console.log(`[Bunkr] decoded final url: ${finalUrl || 'DECODE FAILED'}`);
                         if (!finalUrl || typeof finalUrl !== 'string') return null;
                         finalUrl = finalUrl.trim();
                         if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
+
                         finalUrl = await xfpdBunkrSignCdnUrl(http, finalUrl);
 
-                        // Attach filename hint to the final URL too (so later download naming can pick it up).
                         try {
                             const strip = (s) => String(s || '').split('#')[0].split('?')[0];
-
-                            // Prefer filename from /api/vs JSON when available (works even if /v/ is blocked by CF/403).
-                            const vsHint = xfpdBunkrExtractNameFromVsData(data);
-
                             const hint =
-                                vsHint ||
+                                xfpdBunkrExtractNameFromVsData(data) ||
                                 bunkrNameByUrl.get(cleanUrl) ||
                                 bunkrNameByUrl.get(strip(cleanUrl)) ||
                                 '';
-
-                            if (hint && String(hint).trim() && !xfpdLooksLikeCfFilenameHint(hint)) {
+                            if (hint && String(hint).trim()) {
                                 const h0 = String(hint).trim();
                                 bunkrNameByUrl.set(cleanUrl, h0);
                                 bunkrNameByUrl.set(strip(cleanUrl), h0);
                                 bunkrNameByUrl.set(finalUrl, h0);
                                 bunkrNameByUrl.set(strip(finalUrl), h0);
                             }
-                        } catch (e) { }
+                        } catch (e) {}
+
                         return finalUrl;
                     } catch (e) {
+                        console.log(`[Bunkr] tryNewApi threw: ${(e && e.message) || e}`);
                         return null;
                     }
                 };
 
-                const apiBases = xfpdBunkrFilterBases([origin, 'https://bunkr.pk', 'https://bunkr.cr']);
-                let finalURL = null;
-
-                for (const b of apiBases) {
-                    finalURL = await tryVs(b);
-                    if (finalURL) break;
+                const finalURL = await tryNewApi();
+                if (!finalURL) {
+                    console.log(`[Bunkr] UNRESOLVED -> falling back to the page URL, which will download as HTML: ${cleanUrl}`);
                 }
-
                 return finalURL || cleanUrl;
             } catch (error) {
                 console.error(error?.message || error);
@@ -3480,216 +3910,238 @@ const resolvers = [
             }
         },
     ],
-    [
-        [/bunkrr?r?\.(ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
-        async (url, http, _, __, ___, progressCB) => {
-            const cleanUrl = String(url || '').split('#')[0];
-            const baseUrl = cleanUrl.split('?')[0].replace(/\/+$/, '');
+[
+    [/bunkrr?r?\.(lu|lv|bi|cm|at|by|cx|sx|ac|ax|black|cat|ci|cr|fi|is|media|nu|pk|ph|ps|red|ru|se|si|site|sk|ws|su|org)\/a\//],
+    async (url, http, _, __, ___, progressCB) => {
+        const cleanUrl = String(url || '').split('#')[0];
+        const baseUrl = cleanUrl.split('?')[0].replace(/\/+$/, '');
 
-            const resolved = [];
-            const seen = new Set();
+        const resolved = [];
+        const seen = new Set();
 
-            // Bunkr album: keep the human filename from the album grid (title / .theName) and attach it to resolved CDN URLs.
-            const nameHintBySlug = new Map();
+        // Bunkr album: keep the human filename from the album grid (title / .theName) and attach it to resolved CDN URLs.
+        const nameHintBySlug = new Map();
 
-            let firstDom = null;
-            let firstSource = null;
+        let firstDom = null;
+        let firstSource = null;
 
-            const sanitizeName = s => String(s || '')
-                .replace(/[\\/:*?"<>|]/g, '-')
-                .replace(/\s+/g, ' ')
-                .trim();
+        const sanitizeName = s => String(s || '')
+            .replace(/[\\/:*?"<>|]/g, '-')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-            const decodeFinalUrl = data => {
-                try {
-                    if (!data || !data.url) return null;
-                    if (!data.encrypted) return data.url;
+        const decodeFinalUrl = data => {
+            try {
+                if (!data || !data.url) return null;
+                if (!data.encrypted) return data.url;
 
-                    const binaryString = atob(data.url);
-                    const keyBytes = new TextEncoder().encode(`SECRET_KEY_${Math.floor(data.timestamp / 3600)}`);
+                const binaryString = atob(data.url);
+                const keyBytes = new TextEncoder().encode(`SECRET_KEY_${Math.floor(data.timestamp / 3600)}`);
 
-                    return Array.from(binaryString)
-                        .map((char, i) => String.fromCharCode(char.charCodeAt(0) ^ keyBytes[i % keyBytes.length]))
-                        .join('');
-                } catch (e) {
-                    return null;
-                }
-            };
+                return Array.from(binaryString)
+                    .map((char, i) => String.fromCharCode(char.charCodeAt(0) ^ keyBytes[i % keyBytes.length]))
+                    .join('');
+            } catch (e) {
+                return null;
+            }
+        };
 
-            const extractSlugsFromDom = dom => {
-                const containers = dom?.querySelectorAll?.('.grid-images > div') || [];
-                const slugs = [];
+        const extractSlugsFromDom = dom => {
+            const containers = dom?.querySelectorAll?.('.grid-images > div') || [];
+            const slugs = [];
 
-                for (const c of containers) {
-                    const a =
-                        c.querySelector('a[class="after:absolute after:z-10 after:inset-0"]') ||
-                        c.querySelector('a[href*="/f/"]') ||
-                        c.querySelector('a[href*="/v/"]') ||
-                        c.querySelector('a[href*="/d/"]');
+            for (const c of containers) {
+                const a =
+                    c.querySelector('a[class="after:absolute after:z-10 after:inset-0"]') ||
+                    c.querySelector('a[href*="/f/"]') ||
+                    c.querySelector('a[href*="/v/"]') ||
+                    c.querySelector('a[href*="/d/"]');
 
-                    const href = a?.getAttribute?.('href') || '';
-                    const m = href.match(/\/(f|v|d)\/([^\/?#]+)/i);
-                    if (m && m[2]) {
-                        const slug = m[2];
-                        slugs.push(slug);
+                const href = a?.getAttribute?.('href') || '';
+                const m = href.match(/\/(f|v|d)\/([^\/?#]+)/i);
+                if (m && m[2]) {
+                    const slug = m[2];
+                    slugs.push(slug);
 
-                        // Name hint is visible on /a/ pages (e.g. <div title="...mp4"> or .theName). Use it later when we only have a CDN GUID URL.
-                        try {
-                            let hint = c?.getAttribute?.('title') || '';
-                            if (!hint) hint = c?.querySelector?.('.theName')?.textContent || '';
-                            if (!hint) hint = c?.querySelector?.('p.truncate')?.textContent || '';
-                            if (!hint) hint = c?.querySelector?.('.grid-images_box-txt p')?.textContent || '';
-                            hint = String(hint || '').replace(/\s+/g, ' ').trim();
-                            if (hint) nameHintBySlug.set(slug, hint);
-                        } catch (e) { }
-                    }
-                }
-
-                return slugs;
-            };
-
-            const asyncPool = async (limit, items, worker) => {
-                const results = new Array(items.length);
-                let i = 0;
-
-                const runners = Array.from({ length: Math.max(1, limit) }, async () => {
-                    while (true) {
-                        const idx = i++;
-                        if (idx >= items.length) break;
-                        try {
-                            results[idx] = await worker(items[idx], idx);
-                        } catch (e) {
-                            results[idx] = null;
-                        }
-                    }
-                });
-
-                await Promise.all(runners);
-                return results;
-            };
-
-            const origin = (() => {
-                try { return new URL(baseUrl).origin; } catch (e) { return 'https://bunkr.cr'; }
-            })();
-
-            const vsBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
-
-            let folderName = null;
-
-            const MAX_PAGES = 500;
-            const CONCURRENCY = Math.max(1, Number(xfpdWorkerConfig.asyncConcurrency || 8));
-
-            const albumUrlObj = (() => {
-                try { return new URL(baseUrl); } catch (e) { return null; }
-            })();
-            const albumPath = (albumUrlObj && albumUrlObj.pathname) ? albumUrlObj.pathname : (() => {
-                try { return new URL(cleanUrl).pathname; } catch (e) { return '/'; }
-            })();
-            const albumBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
-            let albumBaseChosen = null;
-
-            for (let page = 1; page <= MAX_PAGES; page++) {
-                const requestedPageUrl = `${baseUrl}?page=${page}`;
-
-                if (typeof progressCB === 'function') {
-                    progressCB(`Resolving: ${requestedPageUrl}`);
-                }
-
-                const pageBases = albumBaseChosen
-                    ? [albumBaseChosen, ...xfpdBunkrFilterBases(albumBasesAll).filter(b => b !== albumBaseChosen)]
-                    : xfpdBunkrFilterBases(albumBasesAll);
-
-                let dom = null, source = '';
-                let pageUrl = requestedPageUrl;
-                let slugs = [];
-
-                for (const base of pageBases) {
-                    const base0 = String(base || '').replace(/\/$/, '');
-                    const candidate = `${base0}${albumPath}?page=${page}`;
-                    pageUrl = candidate;
-
+                    // Name hint is visible on /a/ pages (e.g. <div title="...mp4"> or .theName). Use it later when we only have a CDN GUID URL.
                     try {
-                        ({ dom, source } = await xfpdBunkrGetWithCfRetry(http, candidate, base0, base0 === 'https://bunkr.cr'));
-                    } catch (e) {
-                        dom = null;
-                        source = '';
-                    }
-
-                    if (xfpdLooksLikeCfChallenge(source, dom)) continue;
-
-                    slugs = extractSlugsFromDom(dom);
-                    if (page === 1 && !slugs.length) {
-                        continue;
-                    }
-
-                    if (!albumBaseChosen) albumBaseChosen = base0;
-                    break;
+                        let hint = c?.getAttribute?.('title') || '';
+                        if (!hint) hint = c?.querySelector?.('.theName')?.textContent || '';
+                        if (!hint) hint = c?.querySelector?.('p.truncate')?.textContent || '';
+                        if (!hint) hint = c?.querySelector?.('.grid-images_box-txt p')?.textContent || '';
+                        hint = String(hint || '').replace(/\s+/g, ' ').trim();
+                        if (hint) nameHintBySlug.set(slug, hint);
+                    } catch (e) {}
                 }
-
-                if (!dom) break;
-                if (!slugs.length) break;
-                if (page === 1) {
-                    firstDom = dom;
-                    firstSource = source;
-
-                    const h1 = dom?.querySelector?.('h1');
-                    const title = (h1?.innerText || h1?.textContent || '').split('\n')[0]?.trim();
-                    if (title) folderName = sanitizeName(title);
-                }
-
-                const fresh = [];
-                for (const s of slugs) {
-                    if (!s || seen.has(s)) continue;
-                    seen.add(s);
-                    fresh.push(s);
-                }
-
-                if (!fresh.length) break;
-
-                const urls = await asyncPool(CONCURRENCY, fresh, async (slug) => {
-                    let data = null;
-                    for (const base of xfpdBunkrFilterBases(vsBasesAll)) {
-                        const base0 = String(base || '').replace(/\/$/, '');
-                        const ep = `${base0}/api/vs`;
-                        data = await xfpdBunkrPostVsWithCfRetry(http, ep, slug, pageUrl, base0, base0 === 'https://bunkr.cr');
-                        if (data && typeof data === 'object' && ('url' in data)) break;
-                        data = null;
-                    }
-                    if (!data) return null;
-
-                    let finalUrl = decodeFinalUrl(data);
-                    if (!finalUrl || typeof finalUrl !== 'string') return null;
-
-                    finalUrl = finalUrl.trim();
-                    if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
-
-                    // Attach the album filename hint to the final URL so download naming can use it.
-                    try {
-                        const strip = (s) => String(s || '').split('#')[0].split('?')[0];
-                        const hint = (nameHintBySlug.get(slug) || xfpdBunkrExtractNameFromVsData(data) || '');
-                        if (hint && String(hint).trim()) {
-                            const h0 = String(hint).trim();
-                            bunkrNameByUrl.set(finalUrl, h0);
-                            bunkrNameByUrl.set(strip(finalUrl), h0);
-                        }
-                    } catch (e) { }
-
-                    return finalUrl;
-                });
-
-                for (const u of urls) if (u) resolved.push(u);
             }
 
-            if (!folderName) folderName = h.basename(baseUrl);
+            return slugs;
+        };
 
-            return {
-                dom: firstDom,
-                source: firstSource,
-                folderName,
-                resolved,
-            };
+        const asyncPool = async (limit, items, worker) => {
+            const results = new Array(items.length);
+            let i = 0;
+
+            const runners = Array.from({ length: Math.max(1, limit) }, async () => {
+                while (true) {
+                    const idx = i++;
+                    if (idx >= items.length) break;
+                    try {
+                        results[idx] = await worker(items[idx], idx);
+                    } catch (e) {
+                        results[idx] = null;
+                    }
+                }
+            });
+
+            await Promise.all(runners);
+            return results;
+        };
+
+        const origin = (() => {
+            try { return new URL(baseUrl).origin; } catch (e) { return 'https://bunkr.cr'; }
+        })();
+
+        const vsBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
+
+        let folderName = null;
+
+        const MAX_PAGES = 500;
+        const CONCURRENCY = Math.max(1, Number(xfpdWorkerConfig.asyncConcurrency || 8));
+
+        const albumUrlObj = (() => {
+            try { return new URL(baseUrl); } catch (e) { return null; }
+        })();
+        const albumPath = (albumUrlObj && albumUrlObj.pathname) ? albumUrlObj.pathname : (() => {
+            try { return new URL(cleanUrl).pathname; } catch (e) { return '/'; }
+        })();
+        const albumBasesAll = [origin, 'https://bunkr.pk', 'https://bunkr.cr'].filter((v, i, a) => a.indexOf(v) === i);
+        let albumBaseChosen = null;
+
+        for (let page = 1; page <= MAX_PAGES; page++) {
+            const requestedPageUrl = `${baseUrl}?page=${page}`;
+
+            if (typeof progressCB === 'function') {
+                progressCB(`Resolving: ${requestedPageUrl}`);
+            }
+
+            const pageBases = albumBaseChosen
+                ? [albumBaseChosen, ...xfpdBunkrFilterBases(albumBasesAll).filter(b => b !== albumBaseChosen)]
+                : xfpdBunkrFilterBases(albumBasesAll);
+
+            let dom = null, source = '';
+            let pageUrl = requestedPageUrl;
+            let slugs = [];
+
+            for (const base of pageBases) {
+                const base0 = String(base || '').replace(/\/$/, '');
+                const candidate = `${base0}${albumPath}?page=${page}`;
+                pageUrl = candidate;
+
+                try {
+                    ({ dom, source } = await xfpdBunkrGetWithCfRetry(http, candidate, base0, base0 === 'https://bunkr.cr'));
+                } catch (e) {
+                    dom = null;
+                    source = '';
+                }
+
+                if (xfpdLooksLikeCfChallenge(source, dom)) continue;
+
+                slugs = extractSlugsFromDom(dom);
+                if (page === 1 && !slugs.length) {
+                    continue;
+                }
+
+                if (!albumBaseChosen) albumBaseChosen = base0;
+                break;
+            }
+
+            if (!dom) break;
+            if (!slugs.length) break;
+if (page === 1) {
+                firstDom = dom;
+                firstSource = source;
+
+                const h1 = dom?.querySelector?.('h1');
+                const title = (h1?.innerText || h1?.textContent || '').split('\n')[0]?.trim();
+                if (title) folderName = sanitizeName(title);
+            }
+
+            const fresh = [];
+            for (const s of slugs) {
+                if (!s || seen.has(s)) continue;
+                seen.add(s);
+                fresh.push(s);
+            }
+
+            if (!fresh.length) break;
+
+            const urls = await asyncPool(CONCURRENCY, fresh, async (slug) => {
+                // Fetch /f/{slug} to get the numeric file ID required by the new API.
+                const fileBase = String(albumBaseChosen || origin || 'https://bunkr.cr').replace(/\/$/, '');
+                const filePageUrl = `${fileBase}/f/${slug}`;
+                let dataId = null;
+                try {
+                    const fileRes = await xfpdBunkrGetWithCfRetry(http, filePageUrl, fileBase, fileBase === 'https://bunkr.cr');
+                    const fileDom = fileRes?.dom;
+                    if (fileDom && !xfpdLooksLikeCfChallenge(fileRes?.source || '', fileDom)) {
+                        dataId = fileDom?.querySelector?.('[data-file-id]')?.getAttribute?.('data-file-id') || null;
+                    }
+                } catch (e) {}
+                if (!dataId) return null;
+
+                let data = null;
+                try {
+                    const refererUrl = `https://get.bunkrr.su/file/${dataId}`;
+                    const response = await http.post(
+                        'https://apidl.bunkr.ru/api/_001_v2',
+                        JSON.stringify({ id: dataId }),
+                        {},
+                        {
+                            'Content-Type': 'application/json',
+                            Referer: refererUrl,
+                            Origin: 'https://get.bunkrr.su',
+                        }
+                    );
+                    const text = String(response?.source || '');
+                    data = text ? JSON.parse(text) : null;
+                } catch (e) {}
+                if (!data) return null;
+
+                let finalUrl = decodeFinalUrl(data);
+                if (!finalUrl || typeof finalUrl !== 'string') return null;
+                finalUrl = finalUrl.trim();
+                if (finalUrl.startsWith('//')) finalUrl = 'https:' + finalUrl;
+
+                finalUrl = await xfpdBunkrSignCdnUrl(http, finalUrl);
+
+                try {
+                    const strip = (s) => String(s || '').split('#')[0].split('?')[0];
+                    const hint = nameHintBySlug.get(slug) || xfpdBunkrExtractNameFromVsData(data) || '';
+                    if (hint && String(hint).trim()) {
+                        const h0 = String(hint).trim();
+                        bunkrNameByUrl.set(finalUrl, h0);
+                        bunkrNameByUrl.set(strip(finalUrl), h0);
+                    }
+                } catch (e) {}
+
+                return finalUrl;
+            });
+
+            for (const u of urls) if (u) resolved.push(u);
         }
-    ],
+
+        if (!folderName) folderName = h.basename(baseUrl);
+
+        return {
+            dom: firstDom,
+            source: firstSource,
+            folderName,
+            resolved,
+        };
+    }
+],
+
     [
         [/smgmedia\.socialmediagirls\.com/i],
         async url => ({
@@ -4442,14 +4894,55 @@ const resolvers = [
 
             const resolved = [];
 
+            // Some /d/ links point directly at a file, not a folder -- /contents/{id} then
+            // returns data.type === 'file' with no data.children. Shared by the root-level
+            // case below and the folder-iteration loop, so the link-picking logic (and the
+            // filename-cache side effect) only lives in one place.
+            const resolveGofileFileLink = obj => {
+                if (!obj) return null;
+
+                const fileId = obj.id || obj.code;
+                const fileName = encodeURIComponent(obj.name || fileId || 'file');
+
+                // Prefer direct/CDN links when available. Do NOT force /download/web/
+                // (web flow can return album HTML).
+                const candidates = [obj.directLink, obj.link, obj.downloadLink].filter(Boolean);
+                const link =
+                    candidates.find(u => /\/download\/direct\//i.test(String(u))) ||
+                    candidates[0] ||
+                    (fileId ? `https://gofile.io/download/web/${fileId}/${fileName}` : null);
+
+                if (link) {
+                    // Preserve original GoFile filename (from API) so we don't rely on URL-encoded path segment.
+                    try {
+                        if (obj.name) {
+                            if (fileId) gofileNameById.set(String(fileId), String(obj.name));
+                            gofileNameByUrl.set(String(link), String(obj.name));
+                        }
+                    } catch (e) {}
+                }
+
+                return link;
+            };
+
             const getChildAlbums = async (props, spoilers) => {
-                if (!props || props.status !== 'ok' || !props.data || !props.data.children) {
+                if (!props || props.status !== 'ok' || !props.data) {
                     return [];
                 }
 
                 const resolved = [];
 
                 folderName = props.data.name || folderName;
+
+                if (props.data.type === 'file') {
+                    const link = resolveGofileFileLink(props.data);
+                    if (link) resolved.push(link);
+                    return resolved;
+                }
+
+                if (!props.data.children) {
+                    return [];
+                }
 
                 const files = props.data.children;
 
@@ -4459,26 +4952,8 @@ const resolvers = [
                     if (!obj) continue;
 
                     if (obj.type === 'file') {
-                        const fileId = obj.id || obj.code;
-                        const fileName = encodeURIComponent(obj.name || fileId || 'file');
-
-                        // Prefer direct/CDN links when available. Do NOT force /download/web/
-                        // (web flow can return album HTML).
-                        const candidates = [obj.directLink, obj.link, obj.downloadLink].filter(Boolean);
-                        let link =
-                            candidates.find(u => /\/download\/direct\//i.test(String(u))) ||
-                            candidates[0] ||
-                            (fileId ? `https://gofile.io/download/web/${fileId}/${fileName}` : null);
-
-                        if (link) {
-                            // Preserve original GoFile filename (from API) so we don't rely on URL-encoded path segment.
-                            try {
-                                if (obj.name) {
-                                    if (fileId) gofileNameById.set(String(fileId), String(obj.name));
-                                    if (link) gofileNameByUrl.set(String(link), String(obj.name));
-                                }
-                            } catch (e) { } resolved.push(link);
-                        }
+                        const link = resolveGofileFileLink(obj);
+                        if (link) resolved.push(link);
                     } else if (obj.type === 'folder') {
                         const folderId = obj.id || obj.code;
                         if (!folderId) continue;
@@ -5711,7 +6186,7 @@ const resolvers = [
     ],
 
     [
-        [/filester\.me\/f\//],
+        [/filester.(?:me|sh|si|gg)\/f\//],
         async (url, http, spoilers, postId, postSettings, progressCB) => {
             try {
                 url = String(url || '').trim();
@@ -5745,8 +6220,8 @@ const resolvers = [
                             if (!s) return '';
 
                             // Strip common suffixes.
-                            s = s.replace(/\s*\|\s*filester\.me\s*$/i, '').trim();
-                            s = s.replace(/\s*-\s*filester\.me\s*$/i, '').trim();
+                            s = s.replace(/\s*\|\s*filester.(?:me|sh|si|gg)\s*$/i, '').trim();
+                            s = s.replace(/\s*-\s*filester.(?:me|sh|si|gg)\s*$/i, '').trim();
 
                             // Replace remaining pipes with a Windows-safe separator.
                             if (s.includes('|')) s = s.replace(/\s*\|\s*/g, ' - ').trim();
@@ -5760,7 +6235,7 @@ const resolvers = [
                         const isBad = (t) => {
                             const x = String(t || '').trim();
                             if (!x) return true;
-                            if (/^filester\.me\b/i.test(x)) return true;
+                            if (/^filester.(?:me|sh|si|gg)\b/i.test(x)) return true;
                             if (/BETA\s*\d/i.test(x)) return true;
                             return false;
                         };
@@ -5945,7 +6420,7 @@ const resolvers = [
         },
     ],
     [
-        [/filester\.me\/d\//],
+        [/filester.(?:me|sh|si|gg)\/d\//],
         async (url, http, spoilers, postId, postSettings, progressCB) => {
             const slug = (() => {
                 try {
@@ -5953,7 +6428,7 @@ const resolvers = [
                     const parts = String(u.pathname || '').split('/').filter(Boolean);
                     return parts.length ? parts[parts.length - 1] : '';
                 } catch (e) {
-                    const m = /filester\.me\/d\/([^\/?#]+)/i.exec(String(url || ''));
+                    const m = /filester.(?:me|sh|si|gg)\/d\/([^\/?#]+)/i.exec(String(url || ''));
                     return m && m[1] ? m[1] : '';
                 }
             })();
@@ -6062,18 +6537,18 @@ const resolvers = [
 
                 const clean = candidates
                     .map(s => String(s))
-                    .filter(s => !/filester\.me\/api\//i.test(s))
-                    .filter(s => !/filester\.me\/(css|js)\//i.test(s));
+                    .filter(s => !/filester.(?:me|sh|si|gg)\/api\//i.test(s))
+                    .filter(s => !/filester.(?:me|sh|si|gg)\/(css|js)\//i.test(s));
 
                 if (!clean.length) return null;
 
                 const score = (s) => {
                     let sc = 0;
                     // Strongly prefer CDN /v/ stream URLs.
-                    if (/https?:\/\/cache\d+\.filester\.me\/v\//i.test(s)) sc += 200;
-                    else if (/cache\d+\.filester\.me/i.test(s)) sc += 160;
+                    if (/https?:\/\/cache\d+\.filester.(?:me|sh|si|gg)\/v\//i.test(s)) sc += 200;
+                    else if (/cache\d+\.filester.(?:me|sh|si|gg)/i.test(s)) sc += 160;
                     if (/\/v\//i.test(s)) sc += 80;
-                    if (/\.filester\.me\//i.test(s)) sc += 10;
+                    if (/\.filester.(?:me|sh|si|gg)\//i.test(s)) sc += 10;
                     // De-prioritize HTML view tokens (/d/).
                     if (/\/d\//i.test(s)) sc -= 25;
                     if (/\.mp4(\?|$)/i.test(s)) sc += 2;
@@ -6302,7 +6777,7 @@ const resolvers = [
 
                         const body = String((r2 && r2.source) || '');
 
-                        const mFull = /(https?:\/\/cache\d+\.filester\.me\/v\/[^\"'<>\s]+)/i.exec(body);
+                        const mFull = /(https?:\/\/cache\d+\.filester.(?:me|sh|si|gg)\/v\/[^\"'<>\s]+)/i.exec(body);
                         if (mFull && mFull[1]) return String(mFull[1]).trim();
 
                         const mRel = /[\"'](\/v\/[^\"'<>\s]+)[\"']/i.exec(body);
@@ -6344,7 +6819,7 @@ const resolvers = [
                                         relViewPath = String(u0.pathname || '') + String(u0.search || '');
                                     }
                                     // If the API already gave us a cache /v/ URL, keep it as an immediate candidate.
-                                    if (!streamUrlImmediate && /https?:\/\/cache6\.filester\.me\/v\//i.test(s)) {
+                                    if (!streamUrlImmediate && /https?:\/\/cache6\.filester.(?:me|sh|si|gg)\/v\//i.test(s)) {
                                         streamUrlImmediate = s;
                                     }
                                 } catch (e) { }
@@ -6377,7 +6852,7 @@ const resolvers = [
                     try {
                         const fu0 = String((htmlRes0 && htmlRes0.finalUrl) || '');
                         if (fu0 && /\/v\//i.test(fu0)) {
-                            if (!streamUrlImmediate && /https?:\/\/cache6\.filester\.me\/v\//i.test(fu0)) {
+                            if (!streamUrlImmediate && /https?:\/\/cache6\.filester.(?:me|sh|si|gg)\/v\//i.test(fu0)) {
                                 streamUrlImmediate = fu0;
                             }
                             if (!relViewPath) {
@@ -6394,8 +6869,8 @@ const resolvers = [
                     // Fallback: extract a /v/... token from the HTML itself.
                     if (!streamUrlImmediate) {
                         try {
-                            const mFull = /(https?:\/\/cache\d+\.filester\.me\/v\/[^\s"'<>]+)/i.exec(html0);
-                            if (mFull && mFull[1] && /https?:\/\/cache6\.filester\.me\/v\//i.test(mFull[1])) streamUrlImmediate = mFull[1];
+                            const mFull = /(https?:\/\/cache\d+\.filester.(?:me|sh|si|gg)\/v\/[^\s"'<>]+)/i.exec(html0);
+                            if (mFull && mFull[1] && /https?:\/\/cache6\.filester.(?:me|sh|si|gg)\/v\//i.test(mFull[1])) streamUrlImmediate = mFull[1];
                         } catch (e) { }
                     }
                     if (!relViewPath) {
@@ -6479,7 +6954,7 @@ const resolvers = [
                                 const u2 = new URL(sUrl);
                                 if (/^\/v\//i.test(String(u2.pathname || ''))) {
                                     relViewPath = String(u2.pathname || '') + String(u2.search || '');
-                                    if (/https?:\/\/cache6\.filester\.me\/v\//i.test(sUrl)) streamUrlImmediate = String(sUrl);
+                                    if (/https?:\/\/cache6\.filester.(?:me|sh|si|gg)\/v\//i.test(sUrl)) streamUrlImmediate = String(sUrl);
                                 }
                             } catch (e) {
                                 if (String(sUrl).startsWith('/v/')) relViewPath = String(sUrl);
@@ -7028,11 +7503,22 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 bunkrNameByUrl.set(href0, nm);
                 bunkrNameByUrl.set(strip(href0), nm);
             });
+
+            cc.querySelectorAll('a[href*="goonbox.cr/img/"]').forEach(a => {
+                const href0 = strip(normUrl(a.getAttribute('href')));
+                if (!href0) return;
+                const img = a.querySelector('img');
+                const thumbUrl = img && (img.getAttribute('data-url') || img.getAttribute('src'));
+                if (thumbUrl) goonboxThumbByUrl.set(href0, thumbUrl);
+            });
         }
     } catch (e) { }
 
     log.post.info(postId, '::Url resolution started::', postNumber);
     // console.log(host?.name);
+
+    const totalResourcesToResolve = enabledHosts.reduce((acc, host) => acc + host.resources.length, 0);
+    let resolvingIndex = 0;
 
     for (const host of enabledHosts.filter(host => host.resources.length)) {
         if (xfpdShouldSkipPost(postId)) {
@@ -7053,6 +7539,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 break;
             }
 
+            resolvingIndex++;
+
             if (xfpdPauseDownloads) {
                 h.ui.setText(statusLabel, `Pausado no post #${postNumber}...`);
                 return { paused: true, postId, postNumber };
@@ -7062,7 +7550,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
 
             h.ui.setElProps(statusLabel, { color: '#469cf3', fontWeight: 'bold' });
-            h.ui.setText(statusLabel, `Resolving: ${h.limit(resource, 80)}`);
+            h.ui.setText(statusLabel, `Resolving: ${resolvingIndex} / ${totalResourcesToResolve} 🢒 ${h.limit(resource, 80)}`);
 
             // console.log('[XFPD DEBUG]', {
             //     host: host?.name,
@@ -7322,6 +7810,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
     log.post.info(postId, '::Url resolution completed::', postNumber);
 
+    // Run duplicates and files already on disk are skipped on purpose; they must not show up as failures.
+    const resolvedBeforeWatchedFilter = resolved.length;
     if (xfpdWatchedServerFilter && xfpdWatchedServerState.enabled) {
         const identityKey = resource => {
             const values = [resource?.original, resource?.url].map(value => String(value || '').trim().split(/[?#]/)[0].toLowerCase());
@@ -7389,9 +7879,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     let totalDownloadable = resolved.filter(r => r.url).length;
 
     const totalResources = enabledHosts.reduce((acc, h) => h.resources.length + acc, 0);
+    const expectedDownloads = Math.max(0, totalResources - (resolvedBeforeWatchedFilter - resolved.length));
 
     h.ui.setElProps(statusLabel, { color: '#47ba24', fontWeight: 'bold' });
-    h.ui.setText(statusLabel, `Resolved: ${resolved.length} / ${totalDownloadable} ðŸ¢’ ${totalResources} Total Links`);
+    h.ui.setText(statusLabel, `Resolved: ${resolved.length} / ${totalDownloadable} 🢒 ${totalResources} Total Links`);
 
     const filenames = [];
     const mimeTypes = [];
@@ -7693,9 +8184,16 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 }
             };
             const gofileWarmupAttempted = new Set();
+            // url -> highest pass number currently authoritative. GM_xmlhttpRequest's abort()
+            // isn't always reliable once a blob response is substantially buffered, so a
+            // "stalled" pass-1 request can still fire onload after we've already moved on to a
+            // warm-up retry -- checked in the blob onload handler to stop that stale pass from
+            // also saving the file (duplicate download alongside the retry's result).
+            const gofileActivePass = new Map();
             const CYBERDROP_WARMUP_MS = 1500;
 
             const BLOB_MAX_BYTES = Math.floor(1.6 * 1024 * 1024 * 1024);
+            const BUNKR_DIRECT_MIN_BYTES = 500 * 1024 * 1024;
             const preflightMetaCache = new Map();
             // Windows-safe filenames for GM_download (Chrome is stricter than Firefox).
             const WIN_ILLEGAL_RE = /[<>:"\/\\|?*\x00-\x1F]/g;
@@ -7873,7 +8371,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                     // Fallback HEAD (works for GoFile store links and Pixeldrain list ZIPs)
                     const nameHasExt = /\.[A-Za-z0-9]{1,8}$/.test(String(meta.filename || ''));
-                    const isFilester = /(?:^https?:\/\/)?(?:cache\d+\.)?filester\.me\/v\//i.test(String(dlUrl || ''));
+                    const isFilester = /(?:^https?:\/\/)?(?:cache\d+\.)?filester\.(me|sh|si|gg)\/v\//i.test(String(dlUrl || ''));
                     const needHead = !!(isGoFile || isPixeldrain || (!isFilester && (!meta.size || !meta.filename || !nameHasExt)));
                     if (needHead) {
                         const hRes = await gmHead(dlUrl, reflink);
@@ -7969,7 +8467,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
             const applyFilesterAlbumPolicy = async () => {
                 try {
-                    const isFilesterAlbumOriginal = (s) => /(?:^|\/\/)(?:www\.)?filester\.me\/f\//i.test(String(s || '')) || /filester\.me\/f\//i.test(String(s || ''));
+                    const isFilesterAlbumOriginal = (s) => /(?:^|\/\/)(?:www\.)?filester\.(me|sh|si|gg)\/f\//i.test(String(s || '')) || /filester\.(me|sh|si|gg)\/f\//i.test(String(s || ''));
                     const albumItems = resolved.filter(r => r && r.url && isFilesterAlbumOriginal(r.original));
                     if (!albumItems.length) return;
 
@@ -8104,7 +8602,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     /(?:^|\.)cyberdrop\.[a-z]{2,}/i.test(String(url || '')) ||
                     /(?:^|\.)cyberdrop\.[a-z]{2,}/i.test(String(original || ''));
                 const isBunkr = String((host && host.name) || '').toLowerCase() === 'bunkr' || /bunkr/i.test(String(url || '')) || /bunkr/i.test(String(original || ''));
-                const isFilester = String((host && host.name) || '').toLowerCase() === 'filester' || /(?:^|\.)filester\.me/i.test(String(url || ''));
+                const isFilester = String((host && host.name) || '').toLowerCase() === 'filester' || /(?:^|\.)filester\.(me|sh|si|gg)/i.test(String(url || ''));
+
+                // GoFile: make sure the browser's accountToken cookie matches the token that
+                // resolved this album BEFORE the first request (store links gate on this too,
+                // not just DIRECT) -- see gofileSyncCookie definition for why.
+                if (isGoFile) {
+                    try {
+                        const gfToken = settings?.hosts?.goFile?.token;
+                        if (gfToken) await gofileSyncCookie(gfToken);
+                    } catch (e) {}
+                }
 
                 if (isGoFile) {
                     try {
@@ -8118,7 +8626,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (isFilester) {
                     try {
                         const uF = new URL(String(url || ''));
-                        const isFilesterD = /(^|\.)filester\.me$/i.test(String(uF.host || '')) && /^\/d\//i.test(String(uF.pathname || ''));
+                        const isFilesterD = /(^|\.)filester\.(me|sh|si|gg)$/i.test(String(uF.host || '')) && /^\/d\//i.test(String(uF.pathname || ''));
                         if (isFilesterD) {
                             const slug = String(uF.pathname || '').split('/').filter(Boolean).pop() || '';
                             const v2 = await filesterResolveV2(h.http, uF.origin, slug);
@@ -8176,7 +8684,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     } catch (e) { }
                                     if (!filesterNoTabTokenLogged) {
                                         filesterNoTabTokenLogged = true;
-                                        log.post.info(postId, `::Filester slug->token->cache (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
+                                        log.post.info(postId, `::Filester slug->v2 token (no tab)::: ${slug} -> ${streamUrl}`, postNumber);
                                     }
 
                                     try { filesterSlugByUrl.set(String(streamUrl), String(slug)); } catch (e) { }
@@ -8250,7 +8758,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 } catch (e) { }
                 log.post.info(postId, `::Downloading${isGoFile && pass > 1 ? ' (retry)' : ''}::: ${url}`, postNumber);
 
-                if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|selti-delivery\.ru/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
+                if (isCyberdrop && pass === 1 && cyberOrigin && cyberFilePage && /gigachad-cdn\.ru|cuckcapital\.cr/i.test(String(url || '')) && !cyberdropDirectWarmupDone) {
 
                     cyberdropDirectWarmupDone = true;
                     log.post.info(postId, `::Cyberdrop warm-up -> open tab (${CYBERDROP_WARMUP_MS}ms) then continue::: ${cyberFilePage}`, postNumber);
@@ -8387,7 +8895,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         if (isFilester) {
                             try {
                                 let slug0 = '';
-                                const m = /https?:\/\/(?:www\.)?filester\.me\/d\/([^\/?#]+)/i.exec(String((resource && resource.original) || ''));
+                                const m = /https?:\/\/(?:www\.)?filester\.(me|sh|si|gg)\/d\/([^\/?#]+)/i.exec(String((resource && resource.original) || ''));
                                 if (m && m[1]) slug0 = m[1];
                                 if (!slug0) slug0 = String(filesterSlugByUrl.get(String(url)) || '');
                                 const ct0 = String((meta && (meta.contentType || meta.content_type)) || '');
@@ -8447,7 +8955,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         }
 
                         log.separator(postId);
-                        log.post.info(postId, `::Completed (direct)::: ${url}`, postNumber);
+                        log.post.info(postId, `::Handed off (direct)::: ${url}`, postNumber);
 
                         if (folder && folder.trim() !== '') {
                             log.post.info(postId, `::Saving as (direct)::: ${basename} ::to:: ${folder}`, postNumber);
@@ -8673,9 +9181,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 const totalMB = totalBytes ? Number(totalBytes / 1024 / 1024).toFixed(2) : '??';
                                 if (!totalBytes) {
                                     h.ui.setElProps(filePB, { width: '0%' });
-                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ DIRECT ðŸ¢’ ${loadedMB} MB ðŸ¢’ ${ellipsedUrl}`);
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 DIRECT 🢒 ${loadedMB} MB 🢒 ${ellipsedUrl}`);
                                 } else {
-                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ DIRECT ðŸ¢’ ${loadedMB} MB / ${totalMB} MB  ðŸ¢’ ${ellipsedUrl}`);
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 DIRECT 🢒 ${loadedMB} MB / ${totalMB} MB  🢒 ${ellipsedUrl}`);
                                     h.ui.setElProps(filePB, {
                                         width: `${(e.loaded / totalBytes) * 100}%`,
                                     });
@@ -8685,7 +9193,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 completed++;
                                 settleBatchResource(resource);
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#2d9053' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -8695,7 +9203,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 completed++;
                                 settleBatchResource(resource);
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -8883,17 +9391,25 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             startDirectDownload({ size: response.total });
                             return;
                         }
+                        // Bunkr: large videos cause MV3 port disconnection via blob; switch to direct download above 500MB.
+                        if (!switchedToDirect && isBunkr && response && response.total && response.total > BUNKR_DIRECT_MIN_BYTES) {
+                            log.post.info(postId, `::Bunkr large file (${response.total} bytes > 500MB) -> switch to DIRECT::: ${url}`, postNumber);
+                            switchedToDirect = true;
+                            try { request.abort(); } catch (e) {}
+                            startDirectDownload({ size: response.total });
+                            return;
+                        }
 
                         const downloadedSizeInMB = Number(response.loaded / 1024 / 1024).toFixed(2);
                         const totalSizeInMB = Number(response.total / 1024 / 1024).toFixed(2);
                         if (response.total === -1 || response.totalSize === -1) {
                             h.ui.setElProps(filePB, { width: '0%' });
-                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ ${downloadedSizeInMB} MB ðŸ¢’ ${ellipsedUrl}`);
+                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 ${downloadedSizeInMB} MB 🢒 ${ellipsedUrl}`);
                         } else {
                             h.show(filePB);
                             h.ui.setText(
                                 statusLabel,
-                                `${completed} / ${totalDownloadable} ðŸ¢’ ${host.name} ðŸ¢’ ${downloadedSizeInMB} MB / ${totalSizeInMB} MB  ðŸ¢’ ${ellipsedUrl}`,
+                                `${completed} / ${totalDownloadable} 🢒 ${host.name} 🢒 ${downloadedSizeInMB} MB / ${totalSizeInMB} MB  🢒 ${ellipsedUrl}`,
                             );
                             h.ui.setElProps(filePB, {
                                 width: `${(response.loaded / response.total) * 100}%`,
@@ -8913,6 +9429,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
 
                         if (abortReason === 'bunkr_maint' && bunkrMaintenanceHandled) return;
+                        // GoFile: this pass was superseded by a stall-triggered warm-up retry
+                        // (request.abort() above isn't always reliable once a blob response is
+                        // substantially buffered) -- a newer pass now owns saving this file.
+                        if (isGoFile && (gofileActivePass.get(url) || pass) > pass) return;
                         // GoFile: detect soft-block / HTML gate
                         if (isGoFile) {
                             const mCt = /content-type:\s*([^\r\n]+)/i.exec(response.responseHeaders || '');
@@ -8933,7 +9453,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 completed++;
                                 settleBatchResource(resource);
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -8967,7 +9487,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 completed++;
                                 settleBatchResource(resource);
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -9070,17 +9590,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                                 if (!tried0) { tried0 = new Set(); filesterTriedByToken.set(token0, tried0); }
                                                 tried0.add(String(url));
 
-                                                const isOn6 = /https?:\/\/cache6\.filester\.me\//i.test(String(url || ''));
-                                                const isOn1 = /https?:\/\/cache1\.filester\.me\//i.test(String(url || ''));
+                                                const isOn6 = /https?:\/\/cache6\.filester\.(me|sh|si|gg)\//i.test(String(url || ''));
+                                                const isOn1 = /https?:\/\/cache1\.filester\.(me|sh|si|gg)\//i.test(String(url || ''));
 
                                                 // Prefer swapping cache6 <-> cache1 first.
                                                 if (isOn6) {
                                                     for (const c of (candidates0 || [])) {
-                                                        if (/https?:\/\/cache1\.filester\.me\//i.test(c) && !tried0.has(c)) { nextUrl = c; tried0.add(c); break; }
+                                                        if (/https?:\/\/cache1\.filester\.(me|sh|si|gg)\//i.test(c) && !tried0.has(c)) { nextUrl = c; tried0.add(c); break; }
                                                     }
                                                 } else if (isOn1) {
                                                     for (const c of (candidates0 || [])) {
-                                                        if (/https?:\/\/cache6\.filester\.me\//i.test(c) && !tried0.has(c)) { nextUrl = c; tried0.add(c); break; }
+                                                        if (/https?:\/\/cache6\.filester\.(me|sh|si|gg)\//i.test(c) && !tried0.has(c)) { nextUrl = c; tried0.add(c); break; }
                                                     }
                                                 }
 
@@ -9099,8 +9619,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                                     const fromU = String(url || '');
                                                     const toU = String(nextUrl || '');
                                                     if (toU && toU !== fromU) {
-                                                        const mf = /https?:\/\/(cache\d+)\.filester\.me\//i.exec(fromU);
-                                                        const mt = /https?:\/\/(cache\d+)\.filester\.me\//i.exec(toU);
+                                                        const mf = /https?:\/\/(cache\d+)\.filester\.(me|sh|si|gg)\//i.exec(fromU);
+                                                        const mt = /https?:\/\/(cache\d+)\.filester\.(me|sh|si|gg)\//i.exec(toU);
                                                         if (mf && mt) switchInfo = `; switching ${mf[1]}->${mt[1]}`;
                                                         else if (mf && !mt) switchInfo = `; switching ${mf[1]}->other`;
                                                         else if (!mf && mt) switchInfo = `; switching other->${mt[1]}`;
@@ -9125,7 +9645,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         }
                                     }
 
-                                    const isView = /https?:\/\/(?:www\.)?filester\.me\/d\//i.test(String(url || ''));
+                                    const isView = /https?:\/\/(?:www\.)?filester.(?:me|sh|si|gg)\/d\//i.test(String(url || ''));
                                     if (!isView) {
                                         log.post.info(postId, `::Filester blocked/tiny response -> switch to DIRECT [1/2]::: ${url}`, postNumber);
                                         startDirectDownload({ size: hintSize || 0 });
@@ -9136,7 +9656,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     completed++;
                                     settleBatchResource(resource);
 
-                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                    h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                     h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                     h.ui.setElProps(totalPB, {
                                         width: `${(completed / totalDownloadable) * 100}%`,
@@ -9149,7 +9669,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 completed++;
                                 settleBatchResource(resource);
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -9199,7 +9719,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                 completed++;
                                 settleBatchResource(resource);
 
-                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                                h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                                 h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                                 h.ui.setElProps(totalPB, {
                                     width: `${(completed / totalDownloadable) * 100}%`,
@@ -9259,7 +9779,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         completed++;
                         settleBatchResource(resource);
 
-                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                         h.ui.setElProps(statusLabel, { color: '#2d9053' });
                         h.ui.setElProps(totalPB, {
                             width: `${(completed / totalDownloadable) * 100}%`,
@@ -9404,10 +9924,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         }
 
                         // Filester: prefer the real filename (from view page / API hints). Only fall back to a safe slug-based name when needed.
-                        if (/(?:^|https?:\/\/)(?:cache\d+\.)?filester\.me\/(?:d|v)\//i.test(String(url || ''))) {
+                        if (isFilesterUrl(url)) {
                             try {
                                 let slug0 = '';
-                                const m = /https?:\/\/(?:www\.)?filester\.me\/d\/([^\/?#]+)/i.exec(String((resource && resource.original) || ''));
+                                const m = /https?:\/\/(?:www\.)?filester\.(me|sh|si|gg)\/d\/([^\/?#]+)/i.exec(String((resource && resource.original) || ''));
                                 if (m && m[1]) slug0 = m[1];
                                 if (!slug0) slug0 = String(filesterSlugByUrl.get(String(url)) || '');
                                 const ct0 = headerValue(response.responseHeaders || '', 'content-type');
@@ -9580,7 +10100,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         completed++;
                                     settleBatchResource(resource);
 
-                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ðŸ¢’ ${ellipsedUrl}`);
+                        h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} 🢒 ${ellipsedUrl}`);
                         h.ui.setElProps(statusLabel, { color: '#b23b3b' });
                         h.ui.setElProps(totalPB, {
                             width: `${(completed / totalDownloadable) * 100}%`,
@@ -9615,6 +10135,17 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 const intervalId = setInterval(async () => {
                     const p = requestProgress.find(r => r.url === progressKey);
                     if (!p) return;
+
+                    // Large files switch to DIRECT mid-download: that aborts this request and hands
+                    // off to GM_download. request.abort() does not reliably fire onload/onerror once
+                    // a blob response is buffered (see the GoFile duplicate-save fix), so nothing
+                    // clears this interval. Without the guard the watchdog then reports a false
+                    // ::Stalled/Failed:: for a download that actually succeeded, and increments the
+                    // counter a second time -- the DIRECT onload already counts it, giving 3/2.
+                    if (switchedToDirect) {
+                        clearInterval(p.intervalId);
+                        return;
+                    }
 
                     if (p.old === p.new) {
                         const rr = requests.find(r => r.url === progressKey);
@@ -9665,14 +10196,19 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             return;
                         }
 
-                        // GoFile: make stalls visible and allow one warm-up retry.
-                        if (isGoFile) {
-                            log.post.error(postId, `::Stalled/Failed::: ${url}`, postNumber);
-                        }
+                        // Make stalls visible instead of silently counting a failed download as
+                        // complete (previously only GoFile logged this; every other host -- Bunkr
+                        // included -- fell through to completed++ with no indication of failure).
+                        log.post.error(postId, `::Stalled/Failed::: ${url}`, postNumber);
 
                         if (isGoFile && pass === 1 && !gofileWarmupAttempted.has(url)) {
                             gofileWarmupAttempted.add(url);
                             log.post.info(postId, `::GoFile stalled -> warm-up tab (${GOFILE_WARMUP_MS}ms) then retry [1/2]::: ${url}`, postNumber);
+                            // request.abort() above isn't always reliable once a blob response is
+                            // substantially buffered -- mark pass 2 as authoritative so a zombie
+                            // pass-1 onload (see the isGoFile guard at the top of onload) can't
+                            // also save the file.
+                            gofileActivePass.set(url, 2);
                             gofileWarmupOpenTab(url);
                             setTimeout(() => startDownload(resource, 2), GOFILE_WARMUP_MS);
                             return;
@@ -9774,6 +10310,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
     h.hide(statusLabel);
     h.hide(filePB);
     h.hide(totalPB);
+    if (completed < expectedDownloads && !postSettings.skipDownload) {
+        h.ui.setElProps(statusLabel, { color: '#e8a838', fontWeight: 'bold' });
+        h.ui.setText(statusLabel, `${completed} / ${expectedDownloads} downloaded`);
+        h.show(statusLabel);
+    } else {
+        h.hide(statusLabel);
+    }
 
     if (totalDownloadable > 0) {
         let title = sanitizeWinSegment(threadTitle);
@@ -11349,7 +11892,7 @@ async function processThreadFromHTML(url, filterType = 'date') {
             }
         }
 
-        console.log(`Thread ${url} concluÃ­da. Processados: ${totalProcessed}/${allPostData.length} posts`);
+        console.log(`Thread ${url} concluída. Processados: ${totalProcessed}/${allPostData.length} posts`);
         return {
             ok: true,
             blocked: false,
@@ -11473,9 +12016,7 @@ let skipCurrentThread = false;
     try {
         if (/(^|\.)gofile\.io$/i.test(location.hostname)) return;
         if (/(^|\.)goonbox\.cr$/i.test(location.hostname)) {
-            if (new URLSearchParams(location.search).get(GBX_MARKER_KEY) === GBX_MARKER_VAL) {
-                goonboxBridgeServe();
-            }
+            goonboxBridgeServe();
             return;
         }
     } catch (e) { }
