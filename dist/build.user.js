@@ -209,7 +209,10 @@ function xfpdTrimArrayStart(array, maxEntries) {
 
 function xfpdPushLogEntry(entry) {
     window.logs.push(entry);
-    xfpdTrimArrayStart(window.logs, XFPD_MAX_LOG_ENTRIES);
+    // Trim in chunks: splicing the head on every push shifts the whole array each time.
+    if (window.logs.length > XFPD_MAX_LOG_ENTRIES + 250) {
+        xfpdTrimArrayStart(window.logs, XFPD_MAX_LOG_ENTRIES);
+    }
 }
 
 function xfpdRemoveLogsForPost(postId) {
@@ -311,9 +314,10 @@ const log = {
             .replace(/::/g, '');
         xfpdPushLogEntry({ postId, message });
         if (toConsole) {
-            if (type.toLowerCase() === 'info') {
+            const level = type.toLowerCase();
+            if (level === 'info') {
                 console.info(message);
-            } else if (type.toLowerCase() === 'warn') {
+            } else if (level === 'warn' || level === 'warning') {
                 console.warn(message);
             } else {
                 console.error(message);
@@ -415,6 +419,7 @@ const settings = {
 };
 
 // GoFile filename hints (from API) so we don't rely on URL-encoded path segments
+let xfpdGofileGenerateWT = null;
 const gofileNameById = new Map();
 const gofileNameByUrl = new Map();
 
@@ -1443,57 +1448,6 @@ async function xfpdBunkrGetWithCfRetry(http, url, warmUrlOrOrigin, allowWarmup =
     return last || { dom: null, source: '' };
 }
 
-async function xfpdBunkrPostVsWithCfRetry(http, endpoint, slug, refererUrl, originUrl, allowWarmup = true) {
-    let lastText = '';
-    let lastStatus = 0;
-    for (let attempt = 0; attempt <= BUNKR_CF_MAX_RETRIES; attempt++) {
-        try {
-            const response = await http.post(
-                endpoint,
-                JSON.stringify({ slug }),
-                {},
-                {
-                    'Content-Type': 'application/json',
-                    Referer: refererUrl,
-                    Origin: originUrl,
-                },
-            );
-            lastText = String(response?.source || '');
-            lastStatus = Number(response?.status || 0);
-        } catch (e) {
-            lastText = '';
-            lastStatus = 0;
-        }
-
-
-
-        // Fast-fail on 403 / CF interstitial for non-last domains:
-        // Immediately blacklist this domain and return null so the caller tries the next domain.
-        if (BUNKR_FASTFAIL_ON_403 && (Number(lastStatus || 0) === 403) && !allowWarmup) {
-            xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-            const status = Number(last?.status || 0);
-        }
-        if (BUNKR_FASTFAIL_ON_403 && !allowWarmup && xfpdLooksLikeCfChallenge(lastText, null)) {
-            xfpdBunkrBanBase(originUrl || refererUrl || endpoint);
-            return null;
-        }
-        try {
-            return JSON.parse(lastText || '{}');
-        } catch (e) {
-            if (xfpdLooksLikeCfChallenge(lastText, null) && attempt < BUNKR_CF_MAX_RETRIES) {
-                if (allowWarmup) {
-                    await xfpdBunkrCfWarmup(String(refererUrl || originUrl || endpoint));
-                } else {
-                    try { await h.delayedResolve(200); } catch (e2) { }
-                }
-                continue;
-            }
-            return null;
-        }
-    }
-    return null;
-}
-
 async function xfpdBunkrSignCdnUrl(httpClient, rawUrl) {
     try {
         const parsed = new URL(String(rawUrl || ''));
@@ -1518,6 +1472,11 @@ async function xfpdBunkrSignCdnUrl(httpClient, rawUrl) {
 
 // Turbo mapping: signed turbocdn URL -> Turbo id (needed for re-sign when resolving from /a/ albums)
 const turboIdBySignedUrl = new Map();
+
+const xfpdTurboExtractId = u => {
+    const m = /\/\/(?:[\w-]+\.)?turbo(?:vid)?\.cr\/(?:v|d|embed)\/([^\/?#]+)/i.exec(String(u || ''));
+    return m ? m[1] : '';
+};
 
 const h = {
     /**
@@ -1625,12 +1584,13 @@ const h = {
    * @param cb
    * @returns {*}
    */
-    unique: (items, cb) => {
-        if (cb) {
-            return items.reduce((acc, item) => (!acc.find(i => i[byKey] === item[byKey]) ? acc.concat(item) : acc), []);
+    unique: (items, byKey) => {
+        if (byKey) {
+            const seen = new Set();
+            return items.filter(item => !seen.has(item[byKey]) && seen.add(item[byKey]));
         }
 
-        return items.reduce((acc, item) => (acc.indexOf(item) < 0 ? acc.concat(item) : acc), []);
+        return [...new Set(items)];
     },
     /**
    * https://github.com/sindresorhus/pretty-bytes
@@ -1908,6 +1868,87 @@ Array.prototype.unique = function (cb) {
     return h.unique(this, cb);
 };
 
+const threadTitleAliases = [
+    [/^cyberpunk 2077|world of cyberpunk 2077$/i, 'Cyberpunk 2077'],
+    [/^georgina rodriguez$/i, 'Georgina Rodríguez'],
+    [/^taina costa$/i, 'Tainá Costa'],
+    [/^sza(?:\s*-\s*solana rowe)?$/i, 'SZA'],
+    [/^cleo pires$/i, 'Cleo Pires'],
+    [/^cinthia cruz(?:\s+@[\w.-]+)?$/i, 'Cinthia Cruz'],
+    [/^breckie hill(?:\s*\([^)]*\))?$/i, 'Breckie Hill'],
+    [/^(?:rebeca|beca) barreto$/i, 'Beca Barreto'],
+    [/^halle bailey(?:\s+actress)?(?:\s*\([^)]*\))?$/i, 'Halle Bailey'],
+    [/^rubi rose|rubixrose$/i, 'Rubi Rose'],
+    [/^yesjulz|julieanna marie goddard$/i, 'YesJulz'],
+    [/^mikaela (?:lafuente|fuente)|mika lafuente|mikalafuente$/i, 'Mikaela Lafuente'],
+    [/^gabriela moura|gabimfmoura$/i, 'Gabriela Moura'],
+    [/^beyonce(?: knowles)?$/i, 'Beyoncé'],
+    [/^mari gonzalez|mari baianinha$/i, 'Mari Gonzalez'],
+    [/^mariely e mirella|gemeas lacracao$/i, 'Gêmeas Lacração'],
+    [/^mel maia|melissa mel maia$/i, 'Mel Maia'],
+    [/^khloe kardashian$/i, 'Khloe Kardashian'],
+    [/^carolina portaluppi|carol portaluppi$/i, 'Carolina Portaluppi'],
+    [/^mayaguod16|maya goudeseune$/i, 'Maya Goudeseune'],
+    [/^vivi wanderley$/i, 'Vivi Wanderley'],
+    [/^iza(?: cantora)?$/i, 'IZA'],
+    [/^tracee ellis ross$/i, 'Tracee Ellis Ross'],
+    [/^laauura(?:model| model)?|laauura_1$/i, 'Laauura'],
+    [/^doechii(?: tde artist)?$/i, 'Doechii'],
+    [/^fernanda lacerda|mendigata$/i, 'Mendigata'],
+    [/^carol dias|panicat$/i, 'Carol Dias'],
+    [/^flay|flayslane bbb20$/i, 'Flay'],
+    [/^gwen stacy|spider[- ]gwen$/i, 'Gwen Stacy'],
+    [/^valeska popozuda|valesca popozuda$/i, 'Valesca Popozuda'],
+    [/^barbie ferreira$/i, 'Barbie Ferreira'],
+    [/^andressa soares|mulher melancia$/i, 'Mulher Melancia'],
+    [/^priscila evellyn$/i, 'Priscila Evellyn'],
+    [/^barbara labres$/i, 'Bárbara Labres'],
+    [/^rafa kalimann$/i, 'Rafa Kalimann'],
+    [/^gillian anderson$/i, 'Gillian Anderson'],
+    [/^aline mineiro$/i, 'Aline Mineiro'],
+    [/^stellar blade$/i, 'Stellar Blade'],
+    [/^street fighter$/i, 'Street Fighter'],
+    [/^karoline lima$/i, 'Karoline Lima'],
+    [/^metal gear solid|quiet$/i, 'Quiet'],
+    [/^dreamworks animation|fiona from shrek$/i, 'Dreamworks'],
+    [/^lara croft|tomb raider$/i, 'Lara Croft'],
+    [/^dc rule34|dc comics$/i, 'DC'],
+    [/^naruto animations - aniflow|naruto(?: \/ boruto)?$/i, 'Naruto'],
+    [/^anya taylor[- ]joy$/i, 'Anya Taylor-Joy'],
+    [/^nicole .*coco.*austin$/i, 'Nicole Coco Austin'],
+    [/^ice spice$/i, 'Ice Spice'],
+    [/^anastasia karanikolaou|stassiebaby$/i, 'Anastasia Karanikolaou'],
+    [/^ellen rocche$/i, 'Ellen Rocche'],
+    [/^flavia alessandra$/i, 'Flávia Alessandra'],
+    [/^cinna(?:\s*[\/-]\s*cinnabrit)?$|^cinnabrit$/i, 'Cinna'],
+    [/^bianca andrade|boca rosa$/i, 'Boca Rosa'],
+    [/^ana paula minerato|apminerato$/i, 'Ana Paula Minerato'],
+    [/^luisa sonza$/i, 'Luísa Sonza'],
+    [/^rosalia|la rosalia$/i, 'Rosalía'],
+    [/^aryna sabalenka|arina sobolenko$/i, 'Aryna Sabalenka'],
+    [/^dina belenkaya|thebelenkaya$/i, 'Dina Belenkaya'],
+    [/^familia sacana|familia sacana e outros$/i, 'Família Sacana'],
+    [/^alessandra espanha|alessandraespanha$/i, 'Alessandra Espanha'],
+    [/^juliana salimeni$/i, 'Juliana Salimeni'],
+    [/^adele exarchopoulos$/i, 'Adèle Exarchopoulos'],
+    [/^maraisa$/i, 'Maraisa'],
+    [/^beabadoobee|beatrice laus$/i, 'Beabadoobee'],
+    [/^alicia keys$/i, 'Alicia Keys'],
+    [/^rhea ripley|wwe rhea ripley$/i, 'Rhea Ripley'],
+    [/^jordyn woods$/i, 'Jordyn Woods'],
+    [/^one piece$/i, 'One Piece'],
+    [/^winona ryder$/i, 'Winona Ryder'],
+    [/^lindsay capuano$/i, 'Lindsay Capuano'],
+    [/^agatha sa$/i, 'Agatha Sá'],
+    [/^rick and morty - pleasure trip [12]$/i, 'Rick and Morty'],
+    [/^dragon ball(?: z)?$/i, 'Dragon Ball'],
+    [/^india love (?:& crystal westbrooks|westbrooks)$/i, 'India Love & Crystal Westbrooks'],
+    [/^lara juca$/i, 'Lara Jucá'],
+    [/^anna estrella$/i, 'Anna Estrella'],
+    [/^ludmilla(?: cantora)?$/i, 'Ludmilla'],
+    [/^nier automata$/i, 'NieR:Automata'],
+];
+
 const canonicalizeThreadTitle = title => {
     const normalized = String(title || '')
         .normalize('NFD')
@@ -1915,88 +1956,8 @@ const canonicalizeThreadTitle = title => {
         .replace(/\s+/g, ' ')
         .trim();
     const lower = normalized.toLowerCase();
-    const aliases = [
-        [/^cyberpunk 2077|world of cyberpunk 2077$/i, 'Cyberpunk 2077'],
-        [/^georgina rodriguez$/i, 'Georgina Rodríguez'],
-        [/^taina costa$/i, 'Tainá Costa'],
-        [/^sza(?:\s*-\s*solana rowe)?$/i, 'SZA'],
-        [/^cleo pires$/i, 'Cleo Pires'],
-        [/^cinthia cruz(?:\s+@[\w.-]+)?$/i, 'Cinthia Cruz'],
-        [/^breckie hill(?:\s*\([^)]*\))?$/i, 'Breckie Hill'],
-        [/^(?:rebeca|beca) barreto$/i, 'Beca Barreto'],
-        [/^halle bailey(?:\s+actress)?(?:\s*\([^)]*\))?$/i, 'Halle Bailey'],
-        [/^rubi rose|rubixrose$/i, 'Rubi Rose'],
-        [/^yesjulz|julieanna marie goddard$/i, 'YesJulz'],
-        [/^mikaela (?:lafuente|fuente)|mika lafuente|mikalafuente$/i, 'Mikaela Lafuente'],
-        [/^gabriela moura|gabimfmoura$/i, 'Gabriela Moura'],
-        [/^beyonce(?: knowles)?$/i, 'Beyoncé'],
-        [/^mari gonzalez|mari baianinha$/i, 'Mari Gonzalez'],
-        [/^mariely e mirella|gemeas lacracao$/i, 'Gêmeas Lacração'],
-        [/^mel maia|melissa mel maia$/i, 'Mel Maia'],
-        [/^khloe kardashian$/i, 'Khloe Kardashian'],
-        [/^carolina portaluppi|carol portaluppi$/i, 'Carolina Portaluppi'],
-        [/^mayaguod16|maya goudeseune$/i, 'Maya Goudeseune'],
-        [/^vivi wanderley$/i, 'Vivi Wanderley'],
-        [/^iza(?: cantora)?$/i, 'IZA'],
-        [/^tracee ellis ross$/i, 'Tracee Ellis Ross'],
-        [/^laauura(?:model| model)?|laauura_1$/i, 'Laauura'],
-        [/^doechii(?: tde artist)?$/i, 'Doechii'],
-        [/^fernanda lacerda|mendigata$/i, 'Mendigata'],
-        [/^carol dias|panicat$/i, 'Carol Dias'],
-        [/^flay|flayslane bbb20$/i, 'Flay'],
-        [/^gwen stacy|spider[- ]gwen$/i, 'Gwen Stacy'],
-        [/^valeska popozuda|valesca popozuda$/i, 'Valesca Popozuda'],
-        [/^barbie ferreira$/i, 'Barbie Ferreira'],
-        [/^andressa soares|mulher melancia$/i, 'Mulher Melancia'],
-        [/^priscila evellyn$/i, 'Priscila Evellyn'],
-        [/^barbara labres$/i, 'Bárbara Labres'],
-        [/^rafa kalimann$/i, 'Rafa Kalimann'],
-        [/^gillian anderson$/i, 'Gillian Anderson'],
-        [/^aline mineiro$/i, 'Aline Mineiro'],
-        [/^stellar blade$/i, 'Stellar Blade'],
-        [/^street fighter$/i, 'Street Fighter'],
-        [/^karoline lima$/i, 'Karoline Lima'],
-        [/^metal gear solid|quiet$/i, 'Quiet'],
-        [/^dreamworks animation|fiona from shrek$/i, 'Dreamworks'],
-        [/^lara croft|tomb raider$/i, 'Lara Croft'],
-        [/^dc rule34|dc comics$/i, 'DC'],
-        [/^naruto animations - aniflow|naruto(?: \/ boruto)?$/i, 'Naruto'],
-        [/^anya taylor[- ]joy$/i, 'Anya Taylor-Joy'],
-        [/^nicole .*coco.*austin$/i, 'Nicole Coco Austin'],
-        [/^ice spice$/i, 'Ice Spice'],
-        [/^anastasia karanikolaou|stassiebaby$/i, 'Anastasia Karanikolaou'],
-        [/^ellen rocche$/i, 'Ellen Rocche'],
-        [/^flavia alessandra$/i, 'Flávia Alessandra'],
-        [/^cinna(?:\s*[\/-]\s*cinnabrit)?$|^cinnabrit$/i, 'Cinna'],
-        [/^bianca andrade|boca rosa$/i, 'Boca Rosa'],
-        [/^ana paula minerato|apminerato$/i, 'Ana Paula Minerato'],
-        [/^luisa sonza$/i, 'Luísa Sonza'],
-        [/^rosalia|la rosalia$/i, 'Rosalía'],
-        [/^aryna sabalenka|arina sobolenko$/i, 'Aryna Sabalenka'],
-        [/^dina belenkaya|thebelenkaya$/i, 'Dina Belenkaya'],
-        [/^familia sacana|familia sacana e outros$/i, 'Família Sacana'],
-        [/^alessandra espanha|alessandraespanha$/i, 'Alessandra Espanha'],
-        [/^juliana salimeni$/i, 'Juliana Salimeni'],
-        [/^adele exarchopoulos$/i, 'Adèle Exarchopoulos'],
-        [/^maraisa$/i, 'Maraisa'],
-        [/^beabadoobee|beatrice laus$/i, 'Beabadoobee'],
-        [/^alicia keys$/i, 'Alicia Keys'],
-        [/^rhea ripley|wwe rhea ripley$/i, 'Rhea Ripley'],
-        [/^jordyn woods$/i, 'Jordyn Woods'],
-        [/^one piece$/i, 'One Piece'],
-        [/^winona ryder$/i, 'Winona Ryder'],
-        [/^lindsay capuano$/i, 'Lindsay Capuano'],
-        [/^agatha sa$/i, 'Agatha Sá'],
-        [/^rick and morty - pleasure trip [12]$/i, 'Rick and Morty'],
-        [/^dragon ball(?: z)?$/i, 'Dragon Ball'],
-        [/^india love (?:& crystal westbrooks|westbrooks)$/i, 'India Love & Crystal Westbrooks'],
-        [/^lara juca$/i, 'Lara Jucá'],
-        [/^anna estrella$/i, 'Anna Estrella'],
-        [/^ludmilla(?: cantora)?$/i, 'Ludmilla'],
-        [/^nier automata$/i, 'NieR:Automata'],
-    ];
 
-    const alias = aliases.find(([pattern]) => pattern.test(normalized));
+    const alias = threadTitleAliases.find(([pattern]) => pattern.test(normalized));
     if (alias) return alias[1];
 
     return normalized
@@ -2004,6 +1965,44 @@ const canonicalizeThreadTitle = title => {
         .replace(/\s*\([^)]*\)\s*$/g, '')
         .replace(/\s*\[[^\]]*\]\s*$/g, '')
         .trim() || lower;
+};
+
+// Resolver patterns are static too: compiled once rather than per resource and resolver.
+const resolverPatternCache = new Map();
+const compileResolverPattern = pattern => {
+    let compiled = resolverPatternCache.get(pattern);
+    if (!compiled) {
+        const source = pattern.toString();
+        compiled = {
+            shouldMatch: !source.includes(':!'),
+            regex: new RegExp(h.re.toString(source.replace(':!', '')), 'is'),
+        };
+        resolverPatternCache.set(pattern, compiled);
+    }
+    return compiled;
+};
+
+// Host matchers are static, so build each one's RegExp once instead of once per post.
+const hostMatcherCache = new Map();
+const compileHostMatcher = matcher => {
+    let compiled = hostMatcherCache.get(matcher);
+    if (compiled) return compiled;
+
+    let pattern = matcher.toString().replace(/~an@/g, 'a-zA-Z0-9');
+    const stripQueryString = pattern.includes('<no_qs>');
+    const stripTrailingSlash = !pattern.includes('<keep_ts>');
+    pattern = pattern.replace('<no_qs>', '').replace('<keep_ts>', '');
+
+    if (pattern.includes('!!')) {
+        pattern = new RegExp(h.re.toString(pattern.replace('!!', '')), 'igs');
+    } else {
+        const body = h.re.toString(pattern);
+        pattern = new RegExp(`(?<=data-url="|src="|href=")${body}.*?(?=")|https?:\/\/(www.)?${body}.*?(?=("|<|$|\]|'))`, 'igs');
+    }
+
+    compiled = { pattern, stripQueryString, stripTrailingSlash };
+    hostMatcherCache.set(matcher, compiled);
+    return compiled;
 };
 
 const parsers = {
@@ -2281,6 +2280,8 @@ const parsers = {
                 } catch (e) { /* ignore */ }
             } catch (e) { /* ignore */ }
 
+            const postTextContent = messageContentClone.innerText;
+
             // Extract spoilers from the post content.
             const spoilers = [...messageContentClone.querySelectorAll('.bbCodeBlock--spoiler > .bbCodeBlock-content')]
                 .filter(s => !s.querySelector('.bbCodeBlock--unfurl'))
@@ -2288,7 +2289,7 @@ const parsers = {
                 .map(s => s.innerText)
                 .concat(
                     h.re
-                        .matchAll(/(?<=pw|pass|passwd|password)(\s:|:)?\s+?[a-zA-Z0-9~!@#$%^&*()_+{}|:'"<>?\/,;.]+/gis, messageContentClone.innerText)
+                        .matchAll(/(?<=pw|pass|passwd|password)(\s:|:)?\s+?[a-zA-Z0-9~!@#$%^&*()_+{}|:'"<>?\/,;.]+/gis, postTextContent)
                         .map(s => s.trim()),
                 )
                 .map(s =>
@@ -2304,7 +2305,6 @@ const parsers = {
                 .unique();
 
             const postContent = messageContentClone.innerHTML;
-            const postTextContent = messageContentClone.innerText;
 
             const matches = /(?<=\/page-)\d+/is.exec(document.location.pathname);
 
@@ -2351,21 +2351,9 @@ const parsers = {
                 let albumMatcherPattern = matchers.length > 1 ? matchers[1] : null;
 
                 const execMatcher = matcher => {
-                    let pattern = matcher.toString().replace(/~an@/g, 'a-zA-Z0-9');
+                    const { pattern, stripQueryString, stripTrailingSlash } = compileHostMatcher(matcher);
 
-                    const stripQueryString = h.contains('<no_qs>', pattern.toString());
-                    const stripTrailingSlash = !h.contains('<keep_ts>', pattern.toString());
-                    pattern = pattern.replace('<no_qs>', '').replace('<keep_ts>', '');
-
-                    if (h.contains('!!', pattern)) {
-                        pattern = pattern.replace('!!', '');
-                        pattern = h.re.toRegExp(h.re.toString(pattern), 'igs');
-                    } else {
-                        const pat = `(?<=data-url="|src="|href=")${h.re.toString(pattern)}.*?(?=")|https?:\/\/(www.)?${h.re.toString(pattern)}.*?(?=("|<|$|\]|'))`;
-                        pattern = h.re.toRegExp(pat, 'igs');
-                    }
-
-                    let matches = h.re.matchAll(pattern, postContent).unique();
+                    let matches = h.unique(h.re.matchAll(pattern, postContent));
 
                     // if (matches.length) {
                     //     console.log(
@@ -3692,7 +3680,7 @@ const resolvers = [
 
                     return { urls: [], parsed };
                 } catch (e) {
-                    return { urls: [], parsed };
+                    return { urls: [], parsed: null };
                 }
             };
 
@@ -4762,22 +4750,22 @@ if (page === 1) {
                 return json;
             };
 
-            let modernGenerateWT = null;
-
+            // wt.obf.js is the same for every GoFile link, so keep it for the whole session.
             const modernGetGenerateWT = async () => {
-                if (modernGenerateWT) return modernGenerateWT;
+                if (xfpdGofileGenerateWT) return xfpdGofileGenerateWT;
                 const response = await gmReq('GET', 'https://gofile.io/js/wt.obf.js', null, {}, 'text');
                 const source = String(response?.source || '');
                 if (!source || !/generateWT/.test(source)) throw new Error('GoFile generateWT unavailable');
                 const factory = new Function('navigator', `${source}\nreturn typeof generateWT === 'function' ? generateWT : null;`);
-                modernGenerateWT = factory(navigator);
-                if (typeof modernGenerateWT !== 'function') throw new Error('GoFile generateWT invalid');
-                return modernGenerateWT;
+                const generateWT = factory(navigator);
+                if (typeof generateWT !== 'function') throw new Error('GoFile generateWT invalid');
+                xfpdGofileGenerateWT = generateWT;
+                return generateWT;
             };
 
-            const modernGetAccountToken = async () => {
-                const cached = gmGet(AT_KEY, null);
-                let token = cached?.token || settings?.hosts?.goFile?.token || '';
+            const modernGetAccountToken = async (force = false) => {
+                const cached = force ? null : gmGet(AT_KEY, null);
+                let token = force ? '' : (cached?.token || settings?.hosts?.goFile?.token || '');
                 if (!token) {
                     const response = await gmReq('POST', 'https://api.gofile.io/accounts', JSON.stringify({}), {
                         accept: 'application/json',
@@ -4797,8 +4785,8 @@ if (page === 1) {
                 return token;
             };
 
-            const modernApiContents = async (contentId, passwordHash) => {
-                const token = await modernGetAccountToken();
+            const modernApiContents = async (contentId, passwordHash, forceNewToken = false) => {
+                const token = await modernGetAccountToken(forceNewToken);
                 const generateWT = await modernGetGenerateWT();
                 const wt = generateWT(token);
                 const params = new URLSearchParams({
@@ -4821,7 +4809,13 @@ if (page === 1) {
                     },
                     'text',
                 );
-                return JSON.parse(String(response?.source || '{}'));
+                const json = JSON.parse(String(response?.source || '{}'));
+                // A cached guest token can expire; get a fresh one once instead of failing the album.
+                const status = String(json?.status || '').toLowerCase();
+                if (!forceNewToken && /token|unauthorized|invalid/.test(status)) {
+                    return modernApiContents(contentId, passwordHash, true);
+                }
+                return json;
             };
 
             const resolveAlbum = async (urlOrId, spoilers) => {
@@ -7570,18 +7564,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 // });
 
                 for (const pattern of patterns) {
-                    let strPattern = pattern.toString();
-
-                    // console.log('[XFPD DEBUG] checking resolver', {
-                    //     host: host?.name,
-                    //     patterns: patterns.map(p => String(p))
-                    // });
-
-
-                    let shouldMatch = !h.contains(':!', strPattern);
-
-                    strPattern = strPattern.replace(':!', '');
-                    strPattern = h.re.toRegExp(h.re.toString(strPattern), 'is');
+                    const { regex: strPattern, shouldMatch } = compileResolverPattern(pattern);
 
                     // try {
                     //     const testResult = strPattern.test(resource);
@@ -7749,7 +7732,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             const urlStr = String((r && r.url) || '');
             const original = String((r && r.original) || '');
             if (/turbocdn\.st|turbo\.cr|turbovid\.cr/i.test(urlStr)) {
-                const tid = turboIdBySignedUrl.get(urlStr) || turboExtractId(original) || turboExtractId(urlStr) || '';
+                const tid = turboIdBySignedUrl.get(urlStr) || xfpdTurboExtractId(original) || xfpdTurboExtractId(urlStr) || '';
                 if (tid) {
                     if (seenTurbo.has(tid)) {
                         log.post.info(postId, `::Skipping duplicate Turbo resource (id=${tid})::: ${urlStr}`, postNumber);
@@ -8092,10 +8075,22 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
         let completedBatchedDownloads = 0;
         const settledBatchResources = new WeakSet();
+        // Wakes the batch wait loop as soon as a resource settles instead of on its next 1s poll.
+        let wakeBatchWait = null;
+        const waitForBatchProgress = ms => new Promise(resolve => {
+            const done = () => {
+                clearTimeout(timer);
+                if (wakeBatchWait === done) wakeBatchWait = null;
+                resolve();
+            };
+            const timer = setTimeout(done, ms);
+            wakeBatchWait = done;
+        });
         const settleBatchResource = resource => {
             if (!resource || settledBatchResources.has(resource)) return false;
             settledBatchResources.add(resource);
             completedBatchedDownloads++;
+            if (wakeBatchWait) wakeBatchWait();
             return true;
         };
 
@@ -8117,12 +8112,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
             const isTurboUrl = u => /turbocdn\.st|turbo\.cr|turbovid\.cr/i.test(String(u || ''));
 
-            const turboExtractId = u => {
-                const s = String(u || '');
-                const m = s.match(/\/\/(?:[\w-]+\.)?turbo\.cr\/(?:v|d|embed)\/([^\/?#]+)/i) ||
-                    s.match(/\/\/(?:[\w-]+\.)?turbovid\.cr\/(?:v|d|embed)\/([^\/?#]+)/i);
-                return (m && m[1]) ? m[1] : '';
-            };
+            const turboExtractId = xfpdTurboExtractId;
 
             const turboExtractFn = u => {
                 const s = String(u || '');
@@ -10271,7 +10261,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     return { paused: true, postId, postNumber };
                 }
 
-                await h.delayedResolve(1000);
+                await waitForBatchProgress(1000);
 
                 const elapsed = Date.now() - batchStartTime;
                 if (elapsed > BATCH_MAX_TIME_MS) {
@@ -11598,8 +11588,10 @@ async function processThreadFromHTML(url, filterType = 'date') {
         console.log(`Thread detectada com ${lastPage} ${lastPage === 1 ? 'página' : 'páginas'}`);
 
 
-        let allPostData = [];
         const seenPostIds = new Set();
+        let totalCollected = 0;
+        let totalProcessed = 0;
+        let lastPageFetchAt = 0;
 
         let statusContainer = document.getElementById('download-watched-status');
         if (!statusContainer) {
@@ -11620,7 +11612,86 @@ async function processThreadFromHTML(url, filterType = 'date') {
             threadTitle = canonicalizeThreadTitle(threadTitle);
         }
 
-        for (let page = lastPage; page >= 1; page--) {
+        // Posts are downloaded as soon as their page is parsed (same order as collecting every page
+        // first), so a thread that is skipped early -- e.g. the date filter hitting its duplicate
+        // limit -- no longer pays for fetching all of its remaining pages.
+        const downloadCollectedPost = async (parsedPost, parsedHosts) => {
+            if (xfpdPauseDownloads) {
+                await xfpdWaitWhilePaused();
+            }
+
+            if (skipCurrentThread) {
+                log.write(null, `Skip detected during downloads. Aborting thread: ${baseUrl}`, 'INFO');
+                skipCurrentThread = false;
+                return false;
+            }
+
+            try {
+                const getEnabledHostsCB = hosts => hosts.filter(h => h.enabled);
+                const getSettingsCB = () => ({
+                    zipped: false,
+                    flatten: false,
+                    generateLinks: false,
+                    generateLog: false,
+                    skipDuplicates: false,
+                    skipDownload: false,
+                    verifyBunkrLinks: false,
+                    output: [],
+                });
+
+                const statusLabel = document.createElement('div');
+                const filePB = document.createElement('div');
+                const totalPB = document.createElement('div');
+                statusContainer.append(statusLabel, filePB, totalPB);
+
+                xfpdSetActiveWatchedPost(parsedPost.postId, parsedPost.postNumber);
+
+                console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${totalCollected}) ===`);
+                log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
+
+                try {
+                    while (true) {
+                        const result = await xfpdDownloadPostWithPauseResume(
+                            parsedPost,
+                            parsedHosts,
+                            getEnabledHostsCB,
+                            resolvers,
+                            getSettingsCB,
+                            { status: statusLabel, filePB, totalPB },
+                            {},
+                            threadTitle
+                        );
+
+                        if (!result || !result.paused) {
+                            if (result?.skippedExisting) skipCurrentThread = true;
+                            break;
+                        }
+
+                        await xfpdWaitWhilePaused();
+                    }
+                } finally {
+                    xfpdClearActiveWatchedPost();
+                    // The per-post status nodes are never shown; don't let them pile up across a run.
+                    statusLabel.remove();
+                    filePB.remove();
+                    totalPB.remove();
+                }
+
+                if (xfpdConsumeSkipPost(parsedPost.postId)) {
+                    log.write(null, `Post #${parsedPost.postNumber} pulado`, 'INFO');
+                    return true;
+                }
+
+                console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
+                totalProcessed++;
+            } catch (err) {
+                console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
+                log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
+            }
+            return true;
+        };
+
+        pageLoop: for (let page = lastPage; page >= 1; page--) {
 
             if (xfpdPauseDownloads) {
                 await xfpdWaitWhilePaused();
@@ -11638,6 +11709,13 @@ async function processThreadFromHTML(url, filterType = 'date') {
                 // Adicionar filtro em cada página
                 if (filterType === 'reaction_score') {
                     pageUrl += pageUrl.includes('?') ? '&order=reaction_score' : '?order=reaction_score';
+                }
+
+                // Space thread page requests out to avoid DDoS-Guard triggers. Downloads in between
+                // count towards the gap, so this rarely has to wait at all.
+                if (lastPageFetchAt) {
+                    const waitMs = lastPageFetchAt + 2500 + Math.random() * 1500 - Date.now();
+                    if (waitMs > 0) await h.delayedResolve(waitMs);
                 }
 
                 console.log(`Collecting posts from page ${page}: ${pageUrl}`);
@@ -11692,6 +11770,8 @@ async function processThreadFromHTML(url, filterType = 'date') {
                     }
                 }
 
+                lastPageFetchAt = Date.now();
+
                 if (source && looksLikeThreadBlock(source)) {
                     threadFetchTelemetry.skippedPagesBlocked++;
                     source = null;
@@ -11738,6 +11818,8 @@ async function processThreadFromHTML(url, filterType = 'date') {
 
                 console.log(`Found ${postElements.length} posts on page ${page}`);
 
+                const pagePosts = [];
+
                 for (const postEl of postElements) {
                     if (xfpdPauseDownloads) {
                         await xfpdWaitWhilePaused();
@@ -11777,27 +11859,16 @@ async function processThreadFromHTML(url, filterType = 'date') {
                         }
                         seenPostIds.add(postId);
 
-                        let timestamp = parsedPost.date || new Date().toISOString();
-                        if (typeof parsedPost.date === 'string') {
-                            timestamp = new Date(parsedPost.date).getTime();
-                        } else if (parsedPost.timestamp) {
-                            timestamp = parsedPost.timestamp;
-                        }
-
-                        allPostData.push({
-                            parsedPost,
-                            parsedHosts,
-                            timestamp,
-                            page,
-                            postId
-                        });
+                        pagePosts.push({ parsedPost, parsedHosts });
                     } catch (err) {
                         console.error(`Error parsing post on page ${page}:`, err);
                     }
                 }
 
-                // Increase delay between pages to avoid DDoS-Guard triggers
-                if (page > 1) await h.delayedResolve(2500 + Math.random() * 1500);
+                totalCollected += pagePosts.length;
+                for (const { parsedPost, parsedHosts } of pagePosts) {
+                    if (!(await downloadCollectedPost(parsedPost, parsedHosts))) break pageLoop;
+                }
             } catch (err) {
                 console.error(`Error general on page ${page}:`, err);
             }
@@ -11815,89 +11886,16 @@ async function processThreadFromHTML(url, filterType = 'date') {
             skippedPagesBlocked: threadFetchTelemetry.skippedPagesBlocked,
         });
 
-        allPostData.sort((a, b) => b.timestamp - a.timestamp);
+        // A skip that lands on the thread's last post (or the duplicate limit tripping there) must not
+        // leak into the watched loop, which would then stop every remaining thread.
+        skipCurrentThread = false;
 
-        console.log(`Total collected: ${allPostData.length} posts with valid hosts. Starting downloads (most recent → oldest)`);
-
-        let totalProcessed = 0;
-
-        for (const { parsedPost, parsedHosts } of allPostData) {
-            if (xfpdPauseDownloads) {
-                await xfpdWaitWhilePaused();
-            }
-
-            if (skipCurrentThread) {
-                log.write(null, `Skip detected during downloads. Aborting thread: ${baseUrl}`, 'INFO');
-                skipCurrentThread = false;
-                break;
-            }
-
-            try {
-                const getEnabledHostsCB = hosts => hosts.filter(h => h.enabled);
-                const getSettingsCB = () => ({
-                    zipped: false,
-                    flatten: false,
-                    generateLinks: false,
-                    generateLog: false,
-                    skipDuplicates: false,
-                    skipDownload: false,
-                    verifyBunkrLinks: false,
-                    output: [],
-                });
-
-                const statusLabel = document.createElement('div');
-                const filePB = document.createElement('div');
-                const totalPB = document.createElement('div');
-                statusContainer.append(statusLabel, filePB, totalPB);
-
-                xfpdSetActiveWatchedPost(parsedPost.postId, parsedPost.postNumber);
-
-                console.log(`[WATCHED] === INICIANDO POST #${parsedPost.postNumber} (${totalProcessed + 1}/${allPostData.length}) ===`);
-                log.post.info(parsedPost.postId, `::INICIANDO DOWNLOAD (modo Watched) #${parsedPost.postNumber}::`, parsedPost.postNumber);
-
-                try {
-                    while (true) {
-                        const result = await xfpdDownloadPostWithPauseResume(
-                            parsedPost,
-                            parsedHosts,
-                            getEnabledHostsCB,
-                            resolvers,
-                            getSettingsCB,
-                            { status: statusLabel, filePB, totalPB },
-                            {},
-                            threadTitle
-                        );
-
-                        if (!result || !result.paused) {
-                            if (result?.skippedExisting) skipCurrentThread = true;
-                            break;
-                        }
-
-                        await xfpdWaitWhilePaused();
-                    }
-                } finally {
-                    xfpdClearActiveWatchedPost();
-                }
-
-                if (xfpdConsumeSkipPost(parsedPost.postId)) {
-                    log.write(null, `Post #${parsedPost.postNumber} pulado`, 'INFO');
-                    continue;
-                }
-
-                console.log(`[WATCHED] === POST #${parsedPost.postNumber} CONCLUÍDO ===`);
-                totalProcessed++;
-            } catch (err) {
-                console.error(`[WATCHED] Erro no post #${parsedPost.postNumber}:`, err);
-                log.post.error(parsedPost.postId, `::ERRO NO POST (ignorado):: ${err.message}`, parsedPost.postNumber);
-            }
-        }
-
-        console.log(`Thread ${url} concluída. Processados: ${totalProcessed}/${allPostData.length} posts`);
+        console.log(`Thread ${url} concluída. Processados: ${totalProcessed}/${totalCollected} posts`);
         return {
             ok: true,
             blocked: false,
             processedPosts: totalProcessed,
-            totalPosts: allPostData.length,
+            totalPosts: totalCollected,
             baseUrl,
         };
     } catch (fatalErr) {
@@ -12003,9 +12001,11 @@ const normalizeAnimationFilterText = text =>
         .replace(/\s+/g, ' ')
         .trim();
 
+const normalizedAnimationFilterTerms = animationFilterTerms.map(normalizeAnimationFilterText);
+
 const isAnimationPost = text => {
     const normalizedText = normalizeAnimationFilterText(text || '');
-    return animationFilterTerms.some(term => normalizedText.includes(normalizeAnimationFilterText(term)));
+    return normalizedAnimationFilterTerms.some(term => normalizedText.includes(term));
 };
 let isDownloadingAll = false;
 let skipCurrentThread = false;
@@ -12030,19 +12030,20 @@ let skipCurrentThread = false;
     });
 
     document.addEventListener('DOMContentLoaded', async () => {
-
-
-        try {
-            const { source, status } = await h.http.get('https://api.redgifs.com/v2/auth/temporary', {}, {}, 'text');
-            if (status !== 200) { throw new Error(`HTTP ${status}`); }
-            if (h.contains('token', source)) {
-                const token = JSON.parse(source).token;
-                GM_setValue('redgifs_token', token);
+        // Only Redgifs resolvers need this token, much later; don't hold the page UI back for it.
+        (async () => {
+            try {
+                const { source, status } = await h.http.get('https://api.redgifs.com/v2/auth/temporary', {}, {}, 'text');
+                if (status !== 200) { throw new Error(`HTTP ${status}`); }
+                if (h.contains('token', source)) {
+                    const token = JSON.parse(source).token;
+                    GM_setValue('redgifs_token', token);
+                }
+            } catch (e) {
+                console.error('Error getting temporary redgifs auth token:');
+                console.error(e);
             }
-        } catch (e) {
-            console.error('Error getting temporary redgifs auth token:');
-            console.error(e);
-        }
+        })();
 
         init.injectCustomStyles();
 
@@ -12464,11 +12465,11 @@ let skipCurrentThread = false;
             let html = ui.forms.createCheckbox('config-toggle-all-posts', settings.ui.checkboxes.toggleAllCheckboxLabel, false);
             html += ui.forms.createCheckbox('config-filter-animations', 'Desmarcar animações', true);
 
+            const threadTitle = parsers.thread.parseTitle();
             parsedPosts
                 .filter(p => p.parsedHosts.length)
                 .forEach(post => {
                     const { postId, postNumber, textContent } = post.parsedPost;
-                    const threadTitle = parsers.thread.parseTitle();
                     const animationPost = isAnimationPost(`${threadTitle} ${textContent}`);
 
                     selectedPosts.push({ post, enabled: false, animationPost });
