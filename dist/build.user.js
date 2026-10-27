@@ -8191,12 +8191,12 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                     GM_xmlhttpRequest({
                         method: 'HEAD',
                         url: headUrl,
-                        onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '' }),
-                        onerror: () => resolve({ ok: false, status: 0, headers: '' }),
-                        ontimeout: () => resolve({ ok: false, status: 0, headers: '' }),
+                        onload: r => resolve({ ok: true, status: r.status, headers: r.responseHeaders || '', finalUrl: r.finalUrl || '' }),
+                        onerror: () => resolve({ ok: false, status: 0, headers: '', finalUrl: '' }),
+                        ontimeout: () => resolve({ ok: false, status: 0, headers: '', finalUrl: '' }),
                     });
                 } catch (e) {
-                    resolve({ ok: false, status: 0, headers: '' });
+                    resolve({ ok: false, status: 0, headers: '', finalUrl: '' });
                 }
             });
 
@@ -8223,7 +8223,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 const key = `${dlUrl}`;
                 if (preflightMetaCache.has(key)) return preflightMetaCache.get(key);
 
-                const meta = { size: 0, filename: '', status: 0, contentType: '', headers: '' };
+                const meta = { size: 0, filename: '', status: 0, contentType: '', headers: '', finalUrl: '' };
 
                 try {
                     if (isPixeldrain) {
@@ -8283,6 +8283,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                         const hRes = await gmHead(dlUrl, reflink);
                         meta.status = hRes.status || 0;
                         meta.headers = hRes.headers || '';
+                        meta.finalUrl = hRes.finalUrl || '';
                         meta.contentType = headerValue(meta.headers, 'content-type');
                         const cl = headerValue(meta.headers, 'content-length');
                         if (!meta.size && cl) meta.size = extractNum(cl);
@@ -8713,6 +8714,23 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             }
                         }
 
+                        // DIRECT never sees the response body, so reject what the HEAD already shows is
+                        // not a file instead of saving it: Bunkr's maintenance redirect and HTML pages.
+                        // The Bunkr resolver falls back to the /v/ page URL when it cannot get the file URL.
+                        const directSkipReason =
+                            (isBunkr && /^https?:\/\/(?:www\.)?bunkr+\.[a-z]+\/(?:v|f|a|i)\//i.test(String(url || ''))) ? 'Bunkr not resolved (page URL, not a file)' :
+                            (isBunkr && /\/maint\.mp4(\?|$)/i.test(String(meta.finalUrl || ''))) ? 'Bunkr maintenance redirect (maint.mp4)' :
+                            (meta.status >= 200 && meta.status < 400 && /text\/html|application\/xhtml\+xml/i.test(String(meta.contentType || ''))) ? 'HTML response' : '';
+                        if (directSkipReason) {
+                            completed++;
+                            settleBatchResource(resource);
+                            h.ui.setText(statusLabel, `${completed} / ${totalDownloadable} ✖ ${ellipsedUrl}`);
+                            h.ui.setElProps(statusLabel, { color: '#b23b3b' });
+                            h.ui.setElProps(totalPB, { width: `${(completed / totalDownloadable) * 100}%` });
+                            log.post.error(postId, `::DIRECT skipped (${directSkipReason})::: ${url}`, postNumber);
+                            return;
+                        }
+
                         if (postSettings.zipped) {
                             log.post.info(postId, `::Zipped ON -> saving standalone (not in ZIP)::: ${url}`, postNumber);
                         }
@@ -9053,10 +9071,8 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                         filesterDirectPreflightDone = true;
 
                                         const st0 = Number(pre && pre.status || 0) || 0;
-                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         const finalUrl = pre && (pre.finalUrl || pre.responseURL) ? String(pre.finalUrl || pre.responseURL) : '';
                                         const ok = st0 && st0 < 400;
-                                        console.log("FINAL DOWNLOAD URL:", dlOpts.url);
                                         if (ok) {
                                             directUrl = (finalUrl && /^https?:\/\//i.test(finalUrl)) ? finalUrl : String(cand);
 
@@ -9212,8 +9228,24 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                                     }
                                 } catch (e) { }
                             }
-                            // try { console.log('[XFPD IMG TRACE] About to GM_download', { url: dlOpts.url, headers: dlOpts.headers, name: dlOpts.name, postId }); } catch (e) { }
-                            // GM_download(dlOpts);
+                            // Same Referer the blob path sends; several CDNs refuse hotlinks without it.
+                            if (!dlOpts.headers) {
+                                const directRef = isFilester ? String(filesterRefByUrl.get(String(url)) || (resource && resource.original) || 'https://filester.me/') : reflink;
+                                if (directRef) dlOpts.headers = { Referer: directRef };
+                            }
+
+                            // The downloads API may reject custom headers (Referer is forbidden on some
+                            // browsers) -- retry once without them before reporting the failure.
+                            if (dlOpts.headers) {
+                                const failDirect = dlOpts.onerror;
+                                dlOpts.onerror = err => {
+                                    log.post.info(postId, `::DIRECT failed with headers (${(err && err.error) || 'unknown'}) -> retry without headers::: ${url}`, postNumber);
+                                    const { headers, ...noHeaders } = dlOpts;
+                                    GM_download({ ...noHeaders, onerror: failDirect });
+                                };
+                            }
+
+                            GM_download(dlOpts);
                         }
 
                     } catch (e) {
@@ -9238,6 +9270,15 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 if (isPixeldrainList) {
                     log.post.info(postId, `::Pixeldrain list (/l/) -> DIRECT (skip blob)::: ${url}`, postNumber);
                     setTimeout(() => startDirectDownload(), TURBO_DIRECT_DELAY_MS);
+                    return;
+                }
+
+                // Firefox + Tampermonkey: every GM_download(blob:) leaves a blob: URL in Tampermonkey's
+                // background page that is never revoked (measured: 3588 URLs / 10.5 GB held by the
+                // parent process after one watched run). Hand non-zipped files to the browser download
+                // manager instead, so nothing is buffered in memory. ZIP mode still needs the bytes.
+                if (/firefox\//i.test(navigator.userAgent) && !zippedForThis) {
+                    startDirectDownload();
                     return;
                 }
 

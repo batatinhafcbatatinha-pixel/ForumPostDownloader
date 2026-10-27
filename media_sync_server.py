@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from functools import partial
 import json
@@ -33,11 +34,22 @@ class FileIndex:
     # can both come back "not a duplicate".
     MIN_REFRESH_INTERVAL_SECONDS = 30
 
+    # /register only marks the index dirty; it is written at most this
+    # often. Serializing the whole index (~65 MB of JSON) on every post
+    # was what pushed the process from ~180 MB to ~370 MB.
+    SAVE_INTERVAL_SECONDS = 30
+
     def __init__(self, root: Path, index_path: Path):
         self.root = root.resolve()
         self.index_path = index_path.resolve()
+        self._index_path_key = os.path.normcase(str(self.index_path))
         self.lock = threading.Lock()
         self.threads: dict[str, dict[str, set[str] | dict[str, float]]] = {}
+        self._dirty = False
+
+        # directory -> (mtime_ns, subdirectories) from the last scan, so a
+        # rescan only lists folders whose contents actually changed.
+        self._dir_cache: dict[Path, tuple[int, list[Path]]] = {}
 
         # In-flight reservations: keys that a /check call has just
         # handed out as "new" but that haven't been confirmed by
@@ -210,14 +222,29 @@ class FileIndex:
                 self.index_path.read_text(encoding="utf-8")
             )
 
+            threads_data = data.get("threads", {})
+            del data
+
             self.threads = {}
-            for thread_name, thread_data in data.get("threads", {}).items():
+            # popitem() frees each thread's parsed lists as soon as they are
+            # copied into sets, instead of holding the whole parsed file.
+            while threads_data:
+                thread_name, thread_data = threads_data.popitem()
                 if not isinstance(thread_data, dict):
                     continue
                 state = self._state(thread_name)
-                state["names"].update(
-                    key for value in thread_data.get("names", []) if value for key in self.name_keys(value)
-                )
+                names = state["names"]
+
+                # _save() writes name_keys() output, so stored names are
+                # normally keys already; only expand values that are not.
+                for value in thread_data.get("names", []):
+                    if not value:
+                        continue
+                    if value == self.normalize(value):
+                        names.add(value)
+                    else:
+                        names.update(self.name_keys(value))
+
                 state["ids"].update(str(value) for value in thread_data.get("ids", []) if value)
 
             print(
@@ -239,25 +266,35 @@ class FileIndex:
             self.threads = {}
 
     def _save(self) -> None:
+        """Must be called with self.lock held."""
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
-
-        payload = {"threads": {key: {
-            "names": sorted(state["names"]),
-            "ids": sorted(state["ids"]),
-        } for key, state in self.threads.items()}}
 
         temp_path = self.index_path.with_suffix(".tmp")
 
-        temp_path.write_text(
-            json.dumps(
-                payload,
-                ensure_ascii=False,
-                indent=2
-            ),
-            encoding="utf-8"
-        )
+        # Streamed one thread at a time, so only a single thread's lists
+        # exist as extra copies instead of the whole index plus its JSON.
+        with temp_path.open("w", encoding="utf-8") as f:
+            f.write('{"threads": {')
+
+            for position, (key, state) in enumerate(self.threads.items()):
+                if position:
+                    f.write(", ")
+
+                f.write(json.dumps(key, ensure_ascii=False))
+                f.write(": ")
+                json.dump(
+                    {
+                        "names": sorted(state["names"]),
+                        "ids": sorted(state["ids"]),
+                    },
+                    f,
+                    ensure_ascii=False
+                )
+
+            f.write("}}")
 
         temp_path.replace(self.index_path)
+        self._dirty = False
 
         print(
             f"[XFPD] Índice salvo: "
@@ -292,35 +329,83 @@ class FileIndex:
                 )
                 return
 
-            found = 0
-            new_files = 0
-
-            for path in thread_path.rglob("*"):
-                if path.is_file() and path.resolve() != self.index_path:
-                    found += 1
-
-                    if found % 25000 == 0:
-                        print(
-                            f"[XFPD] Scan em andamento: "
-                            f"{found} arquivos verificados, "
-                            f"{new_files} novos"
-                        )
-
-                    file_keys = self.name_keys(path.name)
-
-                    if file_keys and not file_keys.issubset(names):
-                        names.update(file_keys)
-                        new_files += 1
-
-                        # print(
-                        #     f"[XFPD] Arquivo encontrado: {path}"
-                        # )
+            found, new_files, skipped_dirs = self._scan_changed(thread_path, names)
 
             print(
                 f"[XFPD] Scan concluído: "
-                f"{found} arquivos encontrados, "
-                f"{new_files} novos no índice"
+                f"{found} arquivos listados, "
+                f"{new_files} novos no índice, "
+                f"{skipped_dirs} pastas sem mudança puladas"
             )
+
+    def _scan_changed(self, top: Path, names: set[str]) -> tuple[int, int, int]:
+        """Index files under top, listing only folders changed since the last scan.
+
+        A folder's mtime changes whenever an entry is added, removed or
+        renamed directly inside it (NTFS and the usual POSIX filesystems),
+        so an unchanged mtime means its files are already in the index and
+        only its subfolders still need a look. Must be called with
+        self.lock held.
+        """
+        found = 0
+        new_files = 0
+        skipped_dirs = 0
+        stack = [top]
+
+        while stack:
+            current = stack.pop()
+
+            try:
+                mtime = current.stat().st_mtime_ns
+            except OSError:
+                self._dir_cache.pop(current, None)
+                continue
+
+            cached = self._dir_cache.get(current)
+
+            if cached and cached[0] == mtime:
+                skipped_dirs += 1
+                stack.extend(cached[1])
+                continue
+
+            subdirs: list[Path] = []
+
+            try:
+                with os.scandir(current) as entries:
+                    for entry in entries:
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                subdirs.append(Path(entry.path))
+                                continue
+
+                            if not entry.is_file() or os.path.normcase(entry.path) == self._index_path_key:
+                                continue
+                        except OSError:
+                            continue
+
+                        found += 1
+
+                        if found % 25000 == 0:
+                            print(
+                                f"[XFPD] Scan em andamento: "
+                                f"{found} arquivos verificados, "
+                                f"{new_files} novos"
+                            )
+
+                        file_keys = self.name_keys(entry.name)
+
+                        if file_keys and not file_keys.issubset(names):
+                            names.update(file_keys)
+                            new_files += 1
+            except OSError:
+                continue
+
+            # mtime was read before listing: anything added during the scan
+            # bumps it again and is picked up on the next refresh.
+            self._dir_cache[current] = (mtime, subdirs)
+            stack.extend(subdirs)
+
+        return found, new_files, skipped_dirs
 
     def check(self, thread_name: str, items: list[dict]) -> list[dict]:
         print(
@@ -501,7 +586,8 @@ class FileIndex:
                         names_index.add(key)
                         pending_names.pop(key, None)
 
-            self._save()
+            # Written by the saver thread (see SAVE_INTERVAL_SECONDS).
+            self._dirty = True
 
         print(
             f"[XFPD] REGISTER concluído: "
@@ -538,6 +624,12 @@ class FileIndex:
                 for name in raw_names:
                     for key in self.name_keys(str(name)):
                         state["pending_names"].pop(key, None)
+
+    def flush(self) -> None:
+        """Write the index if /register changed it since the last save."""
+        with self.lock:
+            if self._dirty:
+                self._save()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -809,17 +901,21 @@ def main() -> None:
         index_path
     )
 
-    def periodic_refresh() -> None:
+    # No background rescans: /check already refreshes the one thread it is
+    # asked about (throttled, and only changed folders are listed).
+    def periodic_save() -> None:
         while True:
-            time.sleep(FileIndex.MIN_REFRESH_INTERVAL_SECONDS)
-            for thread_name in list(file_index.threads):
-                file_index.refresh(thread_name, force=True)
+            time.sleep(FileIndex.SAVE_INTERVAL_SECONDS)
+            try:
+                file_index.flush()
+            except OSError as exc:
+                print(f"[XFPD] ERRO ao salvar índice: {exc}")
 
-    refresh_thread = threading.Thread(
-        target=periodic_refresh,
+    save_thread = threading.Thread(
+        target=periodic_save,
         daemon=True
     )
-    refresh_thread.start()
+    save_thread.start()
 
     server = ThreadingHTTPServer(
         (args.host, args.port),
@@ -848,6 +944,12 @@ def main() -> None:
 
     finally:
         server.server_close()
+        try:
+            file_index.flush()
+        except KeyboardInterrupt:
+            # A second Ctrl+C while the saver thread holds the lock: that
+            # save already replaces the file atomically, nothing is lost.
+            print("[XFPD] Salvamento final interrompido; último índice salvo mantido.")
         print("[XFPD] Servidor encerrado.")
 
 
