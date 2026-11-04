@@ -1718,7 +1718,9 @@ const h = {
                     ...(headers || {}),
                 };
                 const withCredentials = !!(hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials') && hdrs.__xfpd_withCredentials);
-                const timeoutMs = Number(hdrs?.__xfpd_timeout || 0) || 0;
+                // Default 60s: without it a hung page/API request never settles and its XHR stays
+                // alive in Tampermonkey's background page (memory report: ~67k live XHR targets).
+                const timeoutMs = Number(hdrs?.__xfpd_timeout || 0) || 60000;
                 try { if (hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_withCredentials')) delete hdrs.__xfpd_withCredentials; } catch (e) { }
                 try { if (hdrs && Object.prototype.hasOwnProperty.call(hdrs, '__xfpd_timeout')) delete hdrs.__xfpd_timeout; } catch (e) { }
 
@@ -5738,6 +5740,10 @@ if (page === 1) {
                 // Legacy API style (older Cyberdrop): https://cyberdrop.me/api/f/<slug>
                 apiCandidates.push(`${origin}/api/f/${slug}`);
 
+                // For cyberdrop.cr, root-based and hardcoded candidates are the same URLs; trying each
+                // duplicate (6s timeout + retry) cost ~65s per unresolvable file.
+                const uniqueApiCandidates = [...new Set(apiCandidates)];
+
                 const headers = {
                     Accept: 'application/json, text/plain, */*',
                     Referer: `${origin}/`,
@@ -5770,6 +5776,7 @@ if (page === 1) {
                     return r;
                 };
 
+                let lastInfoAllGone = false;
                 const fetchInfo = async () => {
                     const parseInfoText = (txt, baseHint) => {
                         const out = { direct: null, name: null, token: null, base: null, auth: null };
@@ -5980,9 +5987,11 @@ if (page === 1) {
                         return out;
                     };
 
-                    for (const apiUrl of apiCandidates) {
+                    lastInfoAllGone = true;
+                    for (const apiUrl of uniqueApiCandidates) {
                         try {
                             const { source, status } = await cyberdropFetchText(apiUrl);
+                            if (status !== 404 && status !== 410) lastInfoAllGone = false;
                             if (status !== 200 || !source) continue;
 
                             let baseHint = apiBaseDefault;
@@ -6020,6 +6029,8 @@ if (page === 1) {
 
                 // 1st attempt: API directly (some setups need two requests for ddos-guard cookies)
                 let directUrl = await fetchInfo();
+                // Every endpoint answered 404/410: the file is gone, so retries and warm-up cannot help.
+                if (!directUrl && lastInfoAllGone) return null;
                 if (!directUrl) directUrl = await fetchInfo();
                 if (directUrl) return directUrl;
 
@@ -8739,9 +8750,10 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 const ellipsedUrl = h.limit(url, 80);
 
-                // Lightweight tracing for JPGX / simp* image hosts to debug missing images
+                // Opt-in tracing for JPGX / simp* image hosts to debug missing images.
+                // Enable from the console with: localStorage.xfpdImgTrace = '1'
                 try {
-                    const isJpgxLike = /simp\d+\.cuckcapital\.cr|jpg6\.su|jpg\d\.(su|cr)/i.test(String(url || '')) || (host && host.name && /JPGX/i.test(String(host.name)));
+                    const isJpgxLike = localStorage.getItem('xfpdImgTrace') === '1' && (/simp\d+\.cuckcapital\.cr|jpg6\.su|jpg\d\.(su|cr)/i.test(String(url || '')) || (host && host.name && /JPGX/i.test(String(host.name))));
                     if (isJpgxLike) {
                         console.log('[XFPD IMG TRACE] startDownload entry', { postId, url, original, host: host && host.name, folderName, isTurbo });
                         log.post.info(postId, `::IMG TRACE startDownload::: ${url}`, postNumber);
@@ -8858,7 +8870,9 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             basename = (filename && filename.name) ? String(filename.name) : '';
                         }
                         if (!basename) {
-                            basename = h.basename(url);
+                            // Drop ?query/#hash: Erome serves "x.jpg?v=123", and Tampermonkey rejects
+                            // the resulting "x.jpg_v=123" name as not_whitelisted.
+                            basename = h.basename(String(url || '').split('#')[0].split('?')[0]);
                         }
 
                         // Bunkr: prefer the human filename (og:title / h1) captured during resolution.
@@ -9177,6 +9191,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             } catch (e) { }
                         }
 
+                        // Keep the GM_download handle so a batch timeout / skip / pause can abort it.
+                        const trackDirectHandle = handle => {
+                            try {
+                                if (handle && typeof handle.abort === 'function') requests.push({ url: String(url), request: handle });
+                            } catch (e) { }
+                            return handle;
+                        };
                         const imagebamHeaders = isImagebamCdnUrl(url) ? { Referer: imagebamRefererForCdn(url) } : null;
                         const dlOpts = {
                             url: directUrl,
@@ -9323,13 +9344,19 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                             if (dlOpts.headers) {
                                 const failDirect = dlOpts.onerror;
                                 dlOpts.onerror = err => {
+                                    // Aborted by timeout/skip/pause: do not start a new download.
+                                    // not_whitelisted is about the file name, not headers: a retry fails the same way.
+                                    if (stopCurrentPost || /abort|not_whitelisted/i.test(String((err && err.error) || ''))) {
+                                        failDirect(err);
+                                        return;
+                                    }
                                     log.post.info(postId, `::DIRECT failed with headers (${(err && err.error) || 'unknown'}) -> retry without headers::: ${url}`, postNumber);
                                     const { headers, ...noHeaders } = dlOpts;
-                                    GM_download({ ...noHeaders, onerror: failDirect });
+                                    trackDirectHandle(GM_download({ ...noHeaders, onerror: failDirect }));
                                 };
                             }
 
-                            GM_download(dlOpts);
+                            trackDirectHandle(GM_download(dlOpts));
                         }
 
                     } catch (e) {
@@ -10276,6 +10303,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
             log.post.info(postId, `::Iniciando batch de ${batch.length} arquivos (post #${postNumber})::`, postNumber);
             let batchStartTime = Date.now();
             const BATCH_MAX_TIME_MS = DOWNLOAD_TIMEOUT_MS;
+            let batchTimedOut = false;
 
             while (completedBatchedDownloads < batch.length) {
                 if (xfpdShouldSkipPost(postId)) {
@@ -10306,8 +10334,13 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
 
                 const elapsed = Date.now() - batchStartTime;
                 if (elapsed > BATCH_MAX_TIME_MS) {
-                    log.post.error(postId, `::BATCH TIMEOUT (30min) - forçando continuação (post #${postNumber})::`, postNumber);
-                    console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout 30min`);
+                    // Label comes from the configured timeout (it used to say "30min" regardless).
+                    const timeoutLabel = `${Math.round(BATCH_MAX_TIME_MS / 1000)}s`;
+                    log.post.error(postId, `::BATCH TIMEOUT (${timeoutLabel}) - forçando continuação (post #${postNumber})::`, postNumber);
+                    console.error(`[XFPD WATCHED] Batch travado no post #${postNumber} - timeout ${timeoutLabel}`);
+                    // Abort what is still in flight so stalled requests stop holding memory in Tampermonkey.
+                    abortCurrentBatch();
+                    batchTimedOut = true;
                     break;
                 }
 
@@ -10322,7 +10355,7 @@ const downloadPost = async (parsedPost, parsedHosts, enabledHostsCB, resolvers, 
                 completedBatchedDownloads = 0;
             }
 
-            if (Date.now() - downloadStartTime > DOWNLOAD_TIMEOUT_MS) {
+            if (batchTimedOut || Date.now() - downloadStartTime > DOWNLOAD_TIMEOUT_MS) {
                 stopCurrentPost = true;
                 log.post.error(postId, `::Timeout do post atingido (${Math.round(DOWNLOAD_TIMEOUT_MS / 1000)}s) -> pulando post::`, postNumber);
                 break;
