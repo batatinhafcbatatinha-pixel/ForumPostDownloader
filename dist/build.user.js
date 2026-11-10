@@ -4568,14 +4568,23 @@ if (page === 1) {
             let parsed = null;
 
             let tries = 0;
+            let missingScript = 0;
 
             // Scumbag pornhub won't send the right json link the first time.
             // Still, there are ocassional 403s / redirects.
-            // TODO: Fix me
             do {
                 const infoURL = await resolvePH(url);
 
                 if (!infoURL) {
+                    // `continue` in do/while jumps straight to the condition, so we must
+                    // count the attempt here, otherwise the loop never ends.
+                    tries++;
+                    missingScript++;
+                    if (missingScript >= 3) {
+                        console.log('PH: desistindo após 3 tentativas sem script', url);
+                        break;
+                    }
+                    await h.delayedResolve(1000);
                     continue;
                 }
 
